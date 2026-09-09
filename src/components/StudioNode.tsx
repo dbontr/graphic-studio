@@ -30,6 +30,7 @@ const kindIcon = {
   adjust: SlidersHorizontal,
   curves: TrendingUp,
   blend: Layers,
+  mask: CircleDot,
   transform: Crop,
   pixelate: Grid3X3,
   posterize: CircleDot,
@@ -184,6 +185,30 @@ function CurveEditor({
   );
 }
 
+function MultiInputHandles({ kind }: { kind: 'blend' | 'mask' }) {
+  const secondaryId = kind === 'blend' ? 'blend' : 'mask';
+  return (
+    <>
+      <Handle
+        id="base"
+        type="target"
+        position={Position.Left}
+        className="studio-handle blend-handle blend-handle--base"
+      />
+      <Handle
+        id={secondaryId}
+        type="target"
+        position={Position.Left}
+        className="studio-handle blend-handle blend-handle--layer"
+      />
+      <span className="blend-port-label blend-port-label--base">A</span>
+      <span className="blend-port-label blend-port-label--layer">
+        {kind === 'blend' ? 'B' : 'M'}
+      </span>
+    </>
+  );
+}
+
 export function StudioNode({ id, data, selected }: NodeProps<StudioFlowNode>) {
   const studio = useStudio();
   const Icon = kindIcon[data.kind];
@@ -223,23 +248,8 @@ export function StudioNode({ id, data, selected }: NodeProps<StudioFlowNode>) {
         data.enabled === false ? 'is-bypassed' : '',
       ].join(' ')}
     >
-      {data.kind === 'blend' ? (
-        <>
-          <Handle
-            id="base"
-            type="target"
-            position={Position.Left}
-            className="studio-handle blend-handle blend-handle--base"
-          />
-          <Handle
-            id="blend"
-            type="target"
-            position={Position.Left}
-            className="studio-handle blend-handle blend-handle--layer"
-          />
-          <span className="blend-port-label blend-port-label--base">A</span>
-          <span className="blend-port-label blend-port-label--layer">B</span>
-        </>
+      {data.kind === 'blend' || data.kind === 'mask' ? (
+        <MultiInputHandles kind={data.kind} />
       ) : data.kind !== 'source' ? (
         <Handle type="target" position={Position.Left} className="studio-handle" />
       ) : null}
@@ -281,6 +291,7 @@ export function StudioNode({ id, data, selected }: NodeProps<StudioFlowNode>) {
           </label>
         </div>
       )}
+
       {data.kind === 'adjust' && (
         <div className="node-body">
           <RangeControl
@@ -416,6 +427,47 @@ export function StudioNode({ id, data, selected }: NodeProps<StudioFlowNode>) {
         </div>
       )}
 
+      {data.kind === 'mask' && (
+        <div className="node-body blend-body mask-body">
+          <div className="blend-input-key nodrag">
+            <span><i>A</i> Base</span>
+            <span><i>M</i> Mask source</span>
+          </div>
+          <label className="node-select nodrag">
+            <span>Mask channel</span>
+            <select
+              value={data.maskChannel ?? 'luminance'}
+              onChange={(event) => commit({ maskChannel: event.target.value as typeof data.maskChannel })}
+            >
+              <option value="luminance">Luminance</option>
+              <option value="alpha">Alpha</option>
+              <option value="red">Red</option>
+              <option value="green">Green</option>
+              <option value="blue">Blue</option>
+            </select>
+          </label>
+          <RangeControl
+            label="Strength"
+            value={Number(data.maskStrength ?? 100)}
+            min={0}
+            max={100}
+            unit="%"
+            onBegin={studio.checkpoint}
+            onChange={(maskStrength) => update({ maskStrength })}
+          />
+          <div className="segmented nodrag">
+            <button
+              className={data.maskInvert ? 'active' : ''}
+              type="button"
+              onClick={() => commit({ maskInvert: !data.maskInvert })}
+            >
+              Invert mask
+            </button>
+          </div>
+          <p className="blend-note">M is normalized to A's canvas and modulates A's alpha.</p>
+        </div>
+      )}
+
       {data.kind === 'transform' && (
         <div className="node-body">
           <label className="node-select nodrag">
@@ -535,6 +587,7 @@ export function StudioNode({ id, data, selected }: NodeProps<StudioFlowNode>) {
           />
         </div>
       )}
+
       {data.kind === 'palette' && (
         <div className="node-body">
           <label className="node-select nodrag">
@@ -636,6 +689,7 @@ export function StudioNode({ id, data, selected }: NodeProps<StudioFlowNode>) {
           />
         </div>
       )}
+
       {data.kind === 'dither' && (
         <div className="node-body">
           <label className="node-select nodrag">
@@ -762,6 +816,7 @@ export function StudioNode({ id, data, selected }: NodeProps<StudioFlowNode>) {
           </div>
         </div>
       )}
+
       {data.kind === 'output' && (
         <div className="node-body preview-body">
           <div className={studio.rendering ? 'preview-frame is-rendering' : 'preview-frame'}>

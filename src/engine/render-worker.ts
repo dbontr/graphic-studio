@@ -1,4 +1,4 @@
-﻿/// <reference lib="webworker" />
+/// <reference lib="webworker" />
 
 import {
   applyEffectCpu,
@@ -9,6 +9,8 @@ import {
   rasterToBlob,
   stableStageSignature,
 } from './imageEngine';
+import { maskRaster } from './mask';
+import { MaskGpuEngine } from './maskGpuEngine';
 import type {
   EngineTelemetry,
   ExportOptions,
@@ -41,7 +43,9 @@ type Response =
 
 const scope = self as DedicatedWorkerGlobalScope;
 const gpu = new WebGpuEngine();
+const maskGpu = new MaskGpuEngine();
 let gpuDisabled = false;
+let maskGpuDisabled = false;
 let previewSource = makeDemoRaster();
 let sourceFile: File | null = null;
 let sourceRevision = 1;
@@ -85,6 +89,19 @@ class RasterCache {
 }
 
 const cache = new RasterCache(192 * 1024 * 1024);
+
+function stageSignature(stage: PipelineStage): string {
+  if (stage.data.kind !== 'mask') return stableStageSignature(stage);
+  const d = stage.data;
+  return JSON.stringify([
+    stage.id,
+    d.kind,
+    d.enabled,
+    d.maskChannel,
+    d.maskInvert,
+    d.maskStrength,
+  ]);
+}
 
 async function fileToRaster(
   file: File,
@@ -185,7 +202,7 @@ async function executeStages(
         cursor += 1;
       }
       if (shouldUseGpu(current, group, terminal && cursor === stages.length)) {
-        const groupToken = `${token}|gpu:${group.map(stableStageSignature).join('>')}`;
+        const groupToken = `${token}|gpu:${group.map(stageSignature).join('>')}`;
         const cached = cache.get(groupToken);
         if (cached) {
           current = cached;
@@ -211,7 +228,7 @@ async function executeStages(
       }
     }
 
-    const stageToken = `${token}|cpu:${stableStageSignature(stage)}`;
+    const stageToken = `${token}|cpu:${stageSignature(stage)}`;
     const cached = cache.get(stageToken);
     if (cached) {
       current = cached;
@@ -272,6 +289,7 @@ async function executeGraph(
   }
 
   const gpuAvailable = !gpuDisabled && await gpu.available();
+  const maskGpuAvailable = !maskGpuDisabled && await maskGpu.available();
   const sourceToken = `source:${sourceRevision}:${modeKey}:${source.width}x${source.height}`;
   const memo = new Map<string, GraphValue>();
   let cacheHits = 0;
@@ -310,12 +328,12 @@ async function executeGraph(
     if (node.data.kind === 'blend') {
       const layerInput = node.inputs.find((input) => input.port === 'blend');
       if (!layerInput) throw new Error(`Blend node ${id} is missing its Blend input.`);
-      // The WebGPU engine reuses shared ping-pong buffers, so branch evaluation is
-      // intentionally serialized. Independent branch results are still memoized.
+      // The main WebGPU engine reuses shared ping-pong buffers, so branch evaluation
+      // remains serialized. Independent branch results are still memoized.
       const base = await evaluate(primaryInput.source);
       const layer = await evaluate(layerInput.source);
       const stage: PipelineStage = { id: node.id, data: node.data };
-      const blendToken = `${base.token}|blend:${stableStageSignature(stage)}|layer:${layer.token}`;
+      const blendToken = `${base.token}|blend:${stageSignature(stage)}|layer:${layer.token}`;
       const cached = cache.get(blendToken);
       const preferGpu = gpuAvailable
         && !gpuDisabled
@@ -350,6 +368,46 @@ async function executeGraph(
       return value;
     }
 
+    if (node.data.kind === 'mask') {
+      const maskInput = node.inputs.find((input) => input.port === 'mask');
+      if (!maskInput) throw new Error(`Mask node ${id} is missing its Mask input.`);
+      const base = await evaluate(primaryInput.source);
+      const mask = await evaluate(maskInput.source);
+      const stage: PipelineStage = { id: node.id, data: node.data };
+      const maskToken = `${base.token}|mask:${stageSignature(stage)}|source:${mask.token}`;
+      const cached = cache.get(maskToken);
+      const preferGpu = maskGpuAvailable
+        && !maskGpuDisabled
+        && base.raster.width * base.raster.height >= 120_000;
+      let raster: Raster;
+      if (cached) {
+        raster = cached;
+        cacheHits += 1;
+        usedGpu ||= preferGpu;
+        usedCpu ||= !preferGpu;
+      } else if (preferGpu) {
+        try {
+          raster = await maskGpu.run(base.raster, mask.raster, node.data);
+          gpuPasses += 1;
+          usedGpu = true;
+          cache.set(maskToken, raster);
+        } catch (error) {
+          console.warn('Graphic Studio WebGPU mask fallback:', error);
+          maskGpuDisabled = true;
+          raster = maskRaster(base.raster, mask.raster, node.data);
+          usedCpu = true;
+          cache.set(maskToken, raster);
+        }
+      } else {
+        raster = maskRaster(base.raster, mask.raster, node.data);
+        usedCpu = true;
+        cache.set(maskToken, raster);
+      }
+      const value = { raster, token: maskToken };
+      memo.set(id, value);
+      return value;
+    }
+
     const chain: PipelineStage[] = [];
     let cursor: GraphPlanNode = node;
     let baseId = primaryInput.source;
@@ -362,6 +420,7 @@ async function executeGraph(
       const parentShared = (children.get(parentId)?.length ?? 0) > 1;
       const boundary = parent.data.kind === 'source'
         || parent.data.kind === 'blend'
+        || parent.data.kind === 'mask'
         || parent.data.kind === 'output'
         || parent.data.enabled === false
         || parentShared;
@@ -518,4 +577,3 @@ scope.onmessage = (event: MessageEvent<Request>) => {
     }
   });
 };
-

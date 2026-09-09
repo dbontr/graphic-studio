@@ -2,7 +2,7 @@
 
 Graphic Studio is a high-performance, node-based image processing studio that runs entirely in the browser and deploys as a static GitHub Pages application.
 
-It started as a Dither Boy-style experiment and is evolving into a broader local-first graphics workbench for dithering, pixel-art workflows, palette processing, color grading, convolution effects, and reusable image pipelines.
+It started as a Dither Boy-style experiment and is evolving into a broader local-first graphics workbench for dithering, pixel-art workflows, palette processing, color grading, compositing, masking, convolution effects, and reusable image pipelines.
 
 **Live:** https://dbontr.github.io/graphic-studio/
 
@@ -23,6 +23,7 @@ No uploaded image needs to leave the device.
 ### Editor
 
 - Infinite node canvas with reconnectable pipelines
+- True branch/recombine graphs with explicit multi-input ports
 - Drag-and-drop image loading anywhere on the workspace
 - Clipboard image paste support
 - PNG, JPEG, WebP, GIF, and AVIF input
@@ -31,8 +32,7 @@ No uploaded image needs to leave the device.
 - Node bypass / enable controls
 - Undo / redo with drag and slider coalescing
 - Keyboard shortcuts for undo, redo, save, and render
-- Workflow JSON import / export
-- Local workflow persistence
+- Workflow JSON import / export with backward-compatible local persistence
 - Last source image persistence in IndexedDB
 - Runtime performance panel with backend, compute time, throughput, cache hits, GPU pass counts, and live histogram / waveform / vectorscope analysis
 
@@ -41,6 +41,7 @@ No uploaded image needs to leave the device.
 - Color + tone: exposure, brightness, contrast, saturation, gamma, temperature, tint
 - Curves: interactive five-anchor Master, Red, Green, and Blue tone curves with exact CPU/WebGPU parity
 - Blend: true two-input branch compositing with 12 blend modes, opacity, alpha compositing, and normalized branch geometry
+- Mask: true two-input alpha masking from luminance, alpha, red, green, or blue; invert and 0–100% strength; normalized branch geometry
 - Transform: crop edges, 90° rotation, horizontal/vertical flip, 10–200% resize, nearest or bilinear resampling
 - Pixelate
 - Posterize
@@ -61,6 +62,7 @@ The backend currently accelerates:
 - Color / tone adjustment
 - Master/RGB tone curves
 - Two-input blend compositing across 12 blend modes
+- Two-input channel/luminance alpha masking
 - Posterization
 - Palette mapping
 - Pixelation
@@ -75,7 +77,9 @@ GPU buffers are reused between renders, compute pipelines are cached, compatible
 
 ### Branching graph execution
 
-The compiler preserves the fast linear plan for ordinary pipelines and emits a dependency DAG only when a live Blend node requires it. Two-input ports are explicit in workflow edges, branch results are memoized, shared ancestors are evaluated once, and compatible unary chains remain fused between branch boundaries. Blend execution uses a dedicated two-input WebGPU kernel on larger canvases with a deterministic CPU-worker fallback.
+The compiler preserves the fast linear plan for ordinary pipelines and emits a dependency DAG only when a live multi-input node requires it. Blend and Mask ports are explicit in workflow edges, branch results are memoized, shared ancestors are evaluated once, and compatible unary chains remain fused between branch boundaries.
+
+Blend execution uses a dedicated two-input WebGPU kernel on larger canvases with a deterministic CPU-worker fallback. Masking uses its own cached two-input WebGPU kernel with channel, inversion, and strength uniforms; when WebGPU is unavailable or not worth the round trip, the worker uses the same deterministic normalized-geometry semantics on the CPU.
 
 ### CPU-worker path
 
@@ -85,7 +89,7 @@ The engine uses an adaptive hybrid policy: a GPU round trip is avoided for tiny 
 
 ### Incremental rendering
 
-A source-revision + stage-signature cache stores reusable intermediate rasters with a bounded memory budget. Moving nodes does not rerender the image because layout coordinates are not part of the semantic render plan. During rapid slider edits, the main thread debounces changes while the render client keeps at most one active render and one newest queued render.
+A source-revision + stage-signature cache stores reusable intermediate rasters with a bounded memory budget. Multi-input cache keys include branch identity and semantic controls, so changing mask channel, inversion, strength, blend mode, or opacity invalidates only the answer-relevant downstream work. Moving nodes does not rerender the image because layout coordinates are not part of the semantic render plan. During rapid slider edits, the main thread debounces changes while the render client keeps at most one active render and one newest queued render.
 
 Preview decoding is capped for interactivity, while export re-decodes the original source at a much higher resolution budget. Live frames are transferred from the render worker as `ImageBitmap` objects and drawn directly to the preview canvas, so interactive rendering pays no image-encoding or Blob-URL churn. A single bounded worker-side analysis pass builds the RGB/luminance histogram, 128×64 luminance waveform, and 96×96 Cb/Cr vectorscope with at most 250,000 samples, avoiding any main-thread pixel readback. PNG, JPEG, or WebP encoding only happens on explicit export; JPEG exports flatten alpha against the selected matte while PNG and WebP preserve transparency. This keeps editing responsive without permanently throwing away source resolution.
 
@@ -114,11 +118,11 @@ Run the complete quality gate with:
 npm run check
 ```
 
-That command runs linting, the engine test suite, TypeScript, and the production Vite build.
+That command runs linting, the engine test suite, TypeScript, and the production Vite build. Pull requests run the same gate in GitHub Actions before release.
 
 ## Direction
 
-The render foundation is intentionally larger than a dithering clone. Planned higher-level capabilities include masks, reusable subgraphs, presets, batch and vector export, comparison views, vector/text overlays, and additional GPU kernels.
+The render foundation is intentionally larger than a dithering clone. Planned higher-level capabilities include reusable subgraphs, presets, batch and vector export, comparison views, vector/text overlays, richer mask construction and feathering, and additional GPU kernels.
 
 The goal is to keep those features on the same local-first architecture rather than growing a server dependency.
 

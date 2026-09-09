@@ -44,7 +44,7 @@ import {
 import { ExportPanel } from './components/ExportPanel';
 import { ScopeViewer } from './components/ScopeViewer';
 import { StudioNode } from './components/StudioNode';
-import { compilePipeline } from './engine/imageEngine';
+import { compileRenderGraph } from './engine/graphCompiler';
 import { RenderEngineClient } from './engine/render-client';
 import { persistSource, restoreSource } from './engine/source-storage';
 import type {
@@ -67,8 +67,11 @@ import { StudioContext } from './studio-context';
 import './styles.css';
 
 const nodeTypes = { studio: StudioNode };
-const STORAGE_KEY = 'graphic-studio-workflow-v2';
-const LEGACY_STORAGE_KEY = 'graphic-studio-workflow-v1';
+const STORAGE_KEY = 'graphic-studio-workflow-v3';
+const LEGACY_STORAGE_KEYS = [
+  'graphic-studio-workflow-v2',
+  'graphic-studio-workflow-v1',
+] as const;
 
 type Snapshot = { nodes: StudioFlowNode[]; edges: StudioEdge[] };
 
@@ -97,7 +100,10 @@ function validSnapshot(value: unknown): value is Snapshot {
 function loadWorkflow(): Snapshot {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
-      ?? localStorage.getItem(LEGACY_STORAGE_KEY);
+      ?? LEGACY_STORAGE_KEYS
+        .map((key) => localStorage.getItem(key))
+        .find((value) => value !== null)
+      ?? null;
     if (!raw) return cloneSnapshot(initialNodes, initialEdges);
     const parsed = JSON.parse(raw) as unknown;
     return validSnapshot(parsed)
@@ -141,6 +147,7 @@ const palette = [
   { kind: 'adjust' as const, label: 'Color + tone', icon: SlidersHorizontal, hint: 'Exposure, gamma, temperature' },
   { kind: 'curves' as const, label: 'Curves', icon: TrendingUp, hint: 'Master + RGB tone curves' },
   { kind: 'blend' as const, label: 'Blend', icon: Layers, hint: 'Two-input compositing' },
+  { kind: 'mask' as const, label: 'Mask', icon: Aperture, hint: 'Two-input alpha masking' },
   { kind: 'transform' as const, label: 'Transform', icon: Crop, hint: 'Crop, rotate, flip, resize' },
   { kind: 'dither' as const, label: 'Dither', icon: Sparkles, hint: '25 algorithms + screens' },
   { kind: 'palette' as const, label: 'Palette map', icon: PaletteIcon, hint: 'Retro + grayscale palettes' },
@@ -166,6 +173,12 @@ function hasPath(edges: StudioEdge[], start: string, target: string): boolean {
     stack.push(...(adjacency.get(current) ?? []));
   }
   return false;
+}
+
+function targetPorts(kind: NodeKind): readonly string[] | null {
+  if (kind === 'blend') return ['base', 'blend'];
+  if (kind === 'mask') return ['base', 'mask'];
+  return null;
 }
 
 export default function App() {
@@ -206,7 +219,7 @@ export default function App() {
   const renderGeneration = useRef(0);
   const workflowInputRef = useRef<HTMLInputElement | null>(null);
 
-  const plan = useMemo(() => compilePipeline(nodes, edges), [nodes, edges]);
+  const plan = useMemo(() => compileRenderGraph(nodes, edges), [nodes, edges]);
   const exportOptions = useMemo<ExportOptions>(() => ({
     format: exportFormat,
     quality: exportQuality,
@@ -407,12 +420,12 @@ export default function App() {
       if (!source || !target) return false;
       if (source.data.kind === 'output' || target.data.kind === 'source') return false;
 
-      const blendTarget = target.data.kind === 'blend';
+      const ports = targetPorts(target.data.kind);
       const targetHandle = connection.targetHandle ?? null;
-      if (blendTarget && targetHandle !== 'base' && targetHandle !== 'blend') return false;
+      if (ports && (!targetHandle || !ports.includes(targetHandle))) return false;
       const withoutSlot = edges.filter((edge) => {
         if (edge.target !== connection.target) return true;
-        if (!blendTarget) return false;
+        if (!ports) return false;
         return (edge.targetHandle ?? null) !== targetHandle;
       });
       return !hasPath(withoutSlot, connection.target, connection.source);
@@ -426,11 +439,11 @@ export default function App() {
       checkpoint();
       setEdges((items) => {
         const target = nodes.find((node) => node.id === connection.target);
-        const blendTarget = target?.data.kind === 'blend';
+        const ports = target ? targetPorts(target.data.kind) : null;
         const targetHandle = connection.targetHandle ?? null;
         const remaining = items.filter((edge) => {
           if (edge.target !== connection.target) return true;
-          if (!blendTarget) return false;
+          if (!ports) return false;
           return (edge.targetHandle ?? null) !== targetHandle;
         });
         return addEdge(
@@ -490,7 +503,7 @@ export default function App() {
         : node,
     );
     const payload = JSON.stringify(
-      { version: 3, nodes: portableNodes, edges, app: 'Graphic Studio' },
+      { version: 4, nodes: portableNodes, edges, app: 'Graphic Studio' },
       null,
       2,
     );
@@ -866,6 +879,7 @@ export default function App() {
                 </dl>
               </Panel>
             )}
+
             <Panel position="bottom-center" className="status-dock">
               <span className={rendering ? 'status-live is-busy' : 'status-live'} />
               <strong>{rendering ? 'Rendering' : 'Live'}</strong>

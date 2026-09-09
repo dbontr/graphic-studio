@@ -5,6 +5,7 @@ export type NodeKind =
   | 'adjust'
   | 'curves'
   | 'blend'
+  | 'mask'
   | 'transform'
   | 'pixelate'
   | 'posterize'
@@ -75,6 +76,7 @@ export type BlendMode =
   | 'exclusion'
   | 'add'
   | 'subtract';
+export type MaskChannel = 'luminance' | 'alpha' | 'red' | 'green' | 'blue';
 
 export interface StudioNodeData extends Record<string, unknown> {
   kind: NodeKind;
@@ -95,6 +97,9 @@ export interface StudioNodeData extends Record<string, unknown> {
   curveChannel?: 'master' | 'red' | 'green' | 'blue';
   blendMode?: BlendMode;
   opacity?: number;
+  maskChannel?: MaskChannel;
+  maskInvert?: boolean;
+  maskStrength?: number;
   rotation?: TransformRotation;
   flipX?: boolean;
   flipY?: boolean;
@@ -203,6 +208,12 @@ export const effectDefaults: Record<
     label: 'Blend',
     blendMode: 'normal',
     opacity: 100,
+  },
+  mask: {
+    label: 'Mask',
+    maskChannel: 'luminance',
+    maskInvert: false,
+    maskStrength: 100,
   },
   transform: {
     label: 'Transform',
