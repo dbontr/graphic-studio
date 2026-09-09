@@ -3,10 +3,10 @@ import { chromium } from 'playwright';
 const url = process.env.GRAPHIC_STUDIO_SMOKE_URL
   ?? 'http://127.0.0.1:5173/graphic-studio/';
 
-const browserChannel = process.env.GRAPHIC_STUDIO_BROWSER_CHANNEL ?? 'chrome';
+const browserChannel = process.env.GRAPHIC_STUDIO_BROWSER_CHANNEL;
 const browser = await chromium.launch({
-  channel: browserChannel,
   headless: true,
+  ...(browserChannel ? { channel: browserChannel } : {}),
   args: ['--enable-unsafe-webgpu'],
 });
 const page = await browser.newPage({ viewport: { width: 1440, height: 1200 } });

@@ -12,7 +12,8 @@
     "check": "npm run lint && npm test && npm run build",
     "smoke:browser": "node scripts/smoke-mask-ui.mjs",
     "benchmark:browser": "node scripts/benchmark-browser.mjs",
-    "smoke:v18": "node scripts/smoke-v18.mjs"
+    "smoke:v18": "node scripts/smoke-v18.mjs",
+    "smoke:cpu": "node scripts/smoke-cpu.mjs"
   },
   "dependencies": {
     "@xyflow/react": "^12.11.6",
