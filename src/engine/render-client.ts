@@ -1,10 +1,11 @@
-import type { RenderPlan, RenderedImage, SourceMeta } from './types';
+import type { RenderPlan, RenderedFrame, RenderedImage, SourceMeta } from './types';
 
 type WorkerResponse =
   | { id: number; ok: true; type: 'capabilities'; webgpu: boolean }
   | { id: number; ok: true; type: 'source'; meta: SourceMeta }
   | { id: number; ok: true; type: 'palette'; colors: string[] }
-  | { id: number; ok: true; type: 'render' | 'export'; image: RenderedImage }
+  | { id: number; ok: true; type: 'render'; frame: RenderedFrame }
+  | { id: number; ok: true; type: 'export'; image: RenderedImage }
   | { id: number; ok: false; error: string };
 
 type Pending = {
@@ -14,7 +15,7 @@ type Pending = {
 
 type QueuedRender = {
   plan: RenderPlan;
-  resolve: (image: RenderedImage) => void;
+  resolve: (frame: RenderedFrame) => void;
   reject: (error: Error) => void;
 };
 
@@ -82,7 +83,7 @@ export class RenderEngineClient {
     return response.colors;
   }
 
-  render(plan: RenderPlan): Promise<RenderedImage> {
+  render(plan: RenderPlan): Promise<RenderedFrame> {
     return new Promise((resolve, reject) => {
       const request: QueuedRender = { plan, resolve, reject };
       if (this.activeRenderId !== null) {
@@ -105,7 +106,7 @@ export class RenderEngineClient {
           request.reject(new Error('Unexpected render response.'));
           return;
         }
-        request.resolve(response.image);
+        request.resolve(response.frame);
       },
       reject: request.reject,
     });

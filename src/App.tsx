@@ -155,7 +155,7 @@ export default function App() {
   const [webgpuAvailable, setWebgpuAvailable] = useState(false);
   const [rendering, setRendering] = useState(false);
   const [exporting, setExporting] = useState(false);
-  const [outputUrl, setOutputUrl] = useState('');
+  const [outputBitmap, setOutputBitmap] = useState<ImageBitmap | null>(null);
   const [telemetry, setTelemetry] = useState<EngineTelemetry | null>(null);
   const [sourceMeta, setSourceMeta] = useState<SourceMeta>({
     width: 960,
@@ -170,7 +170,7 @@ export default function App() {
   const dragStart = useRef<Snapshot | null>(null);
   const dragDepth = useRef(0);
   const engineRef = useRef<RenderEngineClient | null>(null);
-  const outputUrlRef = useRef('');
+  const outputBitmapRef = useRef<ImageBitmap | null>(null);
   const renderGeneration = useRef(0);
   const workflowInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -219,7 +219,8 @@ export default function App() {
       active = false;
       engine.dispose();
       engineRef.current = null;
-      if (outputUrlRef.current) URL.revokeObjectURL(outputUrlRef.current);
+      outputBitmapRef.current?.close();
+      outputBitmapRef.current = null;
     };
   }, [setNodes]);
 
@@ -239,14 +240,16 @@ export default function App() {
       setRendering(true);
       setError('');
       void engine.render(planRef.current)
-        .then((image) => {
-          if (generation !== renderGeneration.current) return;
-          const nextUrl = URL.createObjectURL(image.blob);
-          const previous = outputUrlRef.current;
-          outputUrlRef.current = nextUrl;
-          setOutputUrl(nextUrl);
-          setTelemetry(image.telemetry);
-          if (previous) window.setTimeout(() => URL.revokeObjectURL(previous), 0);
+        .then((frame) => {
+          if (generation !== renderGeneration.current) {
+            frame.bitmap.close();
+            return;
+          }
+          const previous = outputBitmapRef.current;
+          outputBitmapRef.current = frame.bitmap;
+          setOutputBitmap(frame.bitmap);
+          setTelemetry(frame.telemetry);
+          previous?.close();
         })
         .catch((reason: unknown) => {
           if (reason instanceof DOMException && reason.name === 'AbortError') return;
@@ -510,7 +513,7 @@ export default function App() {
       updateNodeData,
       uploadSource,
       extractPalette,
-      outputUrl,
+      outputBitmap,
       outputMeta,
       telemetry,
       rendering,
@@ -521,7 +524,7 @@ export default function App() {
       updateNodeData,
       uploadSource,
       extractPalette,
-      outputUrl,
+      outputBitmap,
       outputMeta,
       telemetry,
       rendering,

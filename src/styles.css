@@ -461,7 +461,8 @@ button {
   background-size: 14px 14px;
 }
 
-.preview-frame img {
+.preview-frame img,
+.preview-canvas {
   width: 100%;
   height: 100%;
   display: block;

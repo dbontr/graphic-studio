@@ -41,16 +41,21 @@ export function makeDemoRaster(width = 960, height = 720): Raster {
   return { width, height, data };
 }
 
-export async function rasterToBlob(raster: Raster): Promise<Blob> {
+function rasterToCanvas(raster: Raster): OffscreenCanvas {
   const canvas = new OffscreenCanvas(raster.width, raster.height);
   const context = canvas.getContext('2d');
   if (!context) throw new Error('OffscreenCanvas 2D is unavailable.');
-  context.putImageData(
-    new ImageData(new Uint8ClampedArray(raster.data), raster.width, raster.height),
-    0,
-    0,
-  );
-  return canvas.convertToBlob({ type: 'image/png' });
+  const pixels = new Uint8ClampedArray(raster.data);
+  context.putImageData(new ImageData(pixels, raster.width, raster.height), 0, 0);
+  return canvas;
+}
+
+export function rasterToBitmap(raster: Raster): ImageBitmap {
+  return rasterToCanvas(raster).transferToImageBitmap();
+}
+
+export async function rasterToBlob(raster: Raster): Promise<Blob> {
+  return rasterToCanvas(raster).convertToBlob({ type: 'image/png' });
 }
 
 export function stableStageSignature(stage: PipelineStage): string {

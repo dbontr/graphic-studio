@@ -4,6 +4,7 @@ import {
   applyEffectCpu,
   isGpuCompatible,
   makeDemoRaster,
+  rasterToBitmap,
   rasterToBlob,
   stableStageSignature,
 } from './imageEngine';
@@ -12,6 +13,7 @@ import type {
   PipelineStage,
   Raster,
   RenderPlan,
+  RenderedFrame,
   RenderedImage,
   SourceMeta,
 } from './types';
@@ -29,7 +31,8 @@ type Response =
   | { id: number; ok: true; type: 'capabilities'; webgpu: boolean }
   | { id: number; ok: true; type: 'source'; meta: SourceMeta }
   | { id: number; ok: true; type: 'palette'; colors: string[] }
-  | { id: number; ok: true; type: 'render' | 'export'; image: RenderedImage }
+  | { id: number; ok: true; type: 'render'; frame: RenderedFrame }
+  | { id: number; ok: true; type: 'export'; image: RenderedImage }
   | { id: number; ok: false; error: string };
 
 const scope = self as DedicatedWorkerGlobalScope;
@@ -214,27 +217,38 @@ async function executePlan(
   return { raster: current, backend, cacheHits, gpuPasses };
 }
 
-async function renderImage(
+async function renderRaster(
   source: Raster,
   plan: RenderPlan,
   modeKey: string,
-): Promise<RenderedImage> {
+): Promise<{ raster: Raster; telemetry: EngineTelemetry }> {
   const started = performance.now();
   const processed = await executePlan(source, plan, modeKey);
   const durationMs = Math.max(0.01, performance.now() - started);
   const effectivePixels = source.width * source.height * Math.max(1, plan.stages.length);
-  const telemetry: EngineTelemetry = {
-    backend: processed.backend,
-    durationMs,
-    megapixelsPerSecond: (effectivePixels / 1_000_000) / (durationMs / 1000),
-    width: processed.raster.width,
-    height: processed.raster.height,
-    stages: plan.stages.length,
-    cacheHits: processed.cacheHits,
-    gpuPasses: processed.gpuPasses,
+  return {
+    raster: processed.raster,
+    telemetry: {
+      backend: processed.backend,
+      durationMs,
+      megapixelsPerSecond: (effectivePixels / 1_000_000) / (durationMs / 1000),
+      width: processed.raster.width,
+      height: processed.raster.height,
+      stages: plan.stages.length,
+      cacheHits: processed.cacheHits,
+      gpuPasses: processed.gpuPasses,
+    },
   };
-  const blob = await rasterToBlob(processed.raster);
-  return { blob, telemetry };
+}
+
+async function renderFrame(source: Raster, plan: RenderPlan): Promise<RenderedFrame> {
+  const rendered = await renderRaster(source, plan, 'preview');
+  return { bitmap: rasterToBitmap(rendered.raster), telemetry: rendered.telemetry };
+}
+
+async function renderImage(source: Raster, plan: RenderPlan): Promise<RenderedImage> {
+  const rendered = await renderRaster(source, plan, 'export');
+  return { blob: await rasterToBlob(rendered.raster), telemetry: rendered.telemetry };
 }
 
 async function handle(request: Request): Promise<Response> {
@@ -281,7 +295,7 @@ async function handle(request: Request): Promise<Response> {
       id: request.id,
       ok: true,
       type: 'render',
-      image: await renderImage(previewSource, request.plan, 'preview'),
+      frame: await renderFrame(previewSource, request.plan),
     };
   }
 
@@ -292,7 +306,7 @@ async function handle(request: Request): Promise<Response> {
     id: request.id,
     ok: true,
     type: 'export',
-    image: await renderImage(source, request.plan, 'export'),
+    image: await renderImage(source, request.plan),
   };
 }
 
@@ -301,7 +315,12 @@ scope.onmessage = (event: MessageEvent<Request>) => {
   const request = event.data;
   chain = chain.then(async () => {
     try {
-      scope.postMessage(await handle(request));
+      const response = await handle(request);
+      if (response.ok && response.type === 'render') {
+        scope.postMessage(response, [response.frame.bitmap]);
+      } else {
+        scope.postMessage(response);
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       const response: Response = { id: request.id, ok: false, error: message };

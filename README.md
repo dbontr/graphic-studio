@@ -74,7 +74,7 @@ The engine uses an adaptive hybrid policy: a GPU round trip is avoided for tiny 
 
 A source-revision + stage-signature cache stores reusable intermediate rasters with a bounded memory budget. Moving nodes does not rerender the image because layout coordinates are not part of the semantic render plan. During rapid slider edits, the main thread debounces changes while the render client keeps at most one active render and one newest queued render.
 
-Preview decoding is capped for interactivity, while export re-decodes the original source at a much higher resolution budget. This keeps editing responsive without permanently throwing away source resolution.
+Preview decoding is capped for interactivity, while export re-decodes the original source at a much higher resolution budget. Live frames are transferred from the render worker as `ImageBitmap` objects and drawn directly to the preview canvas, so interactive rendering does not pay PNG compression or Blob-URL churn. PNG encoding only happens when the user explicitly exports. This keeps editing responsive without permanently throwing away source resolution.
 
 ## Stack
 
