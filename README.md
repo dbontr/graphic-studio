@@ -41,7 +41,7 @@ No uploaded image needs to leave the device.
 - Color + tone: exposure, brightness, contrast, saturation, gamma, temperature, tint
 - Curves: interactive five-anchor Master, Red, Green, and Blue tone curves with exact CPU/WebGPU parity
 - Blend: true two-input branch compositing with 12 blend modes, opacity, alpha compositing, and normalized branch geometry
-- Mask: true two-input alpha masking from luminance, alpha, red, green, or blue; invert and 0–100% strength; normalized branch geometry
+- Mask: true two-input alpha masking from luminance, alpha, red, green, or blue; black/white point and gamma shaping; invert and 0–100% strength; normalized branch geometry
 - Transform: crop edges, 90° rotation, horizontal/vertical flip, 10–200% resize, nearest or bilinear resampling
 - Pixelate
 - Posterize
@@ -79,7 +79,7 @@ GPU buffers are reused between renders, compute pipelines are cached, compatible
 
 The compiler preserves the fast linear plan for ordinary pipelines and emits a dependency DAG only when a live multi-input node requires it. Blend and Mask ports are explicit in workflow edges, branch results are memoized, shared ancestors are evaluated once, and compatible unary chains remain fused between branch boundaries.
 
-Blend execution uses a dedicated two-input WebGPU kernel on larger canvases with a deterministic CPU-worker fallback. Masking uses its own cached two-input WebGPU kernel with channel, inversion, and strength uniforms; when WebGPU is unavailable or not worth the round trip, the worker uses the same deterministic normalized-geometry semantics on the CPU.
+Blend execution uses a dedicated two-input WebGPU kernel on larger canvases with a deterministic CPU-worker fallback. Masking compiles black/white point, gamma, inversion, and strength into a 256-entry byte LUT shared by CPU and WebGPU. The GPU mask path uses integer channel extraction, fixed-point Rec.709 luminance, integer geometry mapping, and integer alpha composition so the two backends follow the same byte semantics. When WebGPU is unavailable or not worth the round trip, the worker uses the same deterministic path on the CPU.
 
 ### CPU-worker path
 
@@ -122,7 +122,7 @@ That command runs linting, the engine test suite, TypeScript, and the production
 
 ## Direction
 
-The render foundation is intentionally larger than a dithering clone. Planned higher-level capabilities include reusable subgraphs, presets, batch and vector export, comparison views, vector/text overlays, richer mask construction and feathering, and additional GPU kernels.
+The render foundation is intentionally larger than a dithering clone. Planned higher-level capabilities include reusable subgraphs, presets, batch and vector export, comparison views, vector/text overlays, spatial mask feathering and blur, and additional GPU kernels.
 
 The goal is to keep those features on the same local-first architecture rather than growing a server dependency.
 

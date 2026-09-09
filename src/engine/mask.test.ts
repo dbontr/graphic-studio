@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import type { StudioNodeData } from '../model';
-import { maskChannelValue, maskRaster } from './mask';
+import {
+  buildMaskLut,
+  maskChannelByte,
+  maskChannelValue,
+  maskRaster,
+  shapeMaskValue,
+} from './mask';
 import type { Raster } from './types';
 
 function raster(width: number, height: number, pixels: number[]): Raster {
@@ -60,6 +66,40 @@ describe('mask compositor', () => {
     expect([
       output.data[3], output.data[7], output.data[11], output.data[15],
     ]).toEqual([0, 0, 255, 255]);
+  });
+
+  it('uses an integer Rec.709 luminance byte for cross-backend determinism', () => {
+    const pixel = new Uint8ClampedArray([64, 128, 192, 255]);
+    expect(maskChannelByte(pixel, 0, 'luminance')).toBe(119);
+    expect(maskChannelValue(pixel, 0, 'luminance')).toBeCloseTo(119 / 255);
+  });
+
+  it('shapes mask levels with black point, white point, and gamma', () => {
+    expect(shapeMaskValue(0.25, { ...defaults, maskBlackPoint: 25, maskWhitePoint: 75 })).toBe(0);
+    expect(shapeMaskValue(0.5, { ...defaults, maskBlackPoint: 25, maskWhitePoint: 75 })).toBeCloseTo(0.5);
+    expect(shapeMaskValue(0.75, { ...defaults, maskBlackPoint: 25, maskWhitePoint: 75 })).toBe(1);
+    expect(shapeMaskValue(0.25, { ...defaults, maskGamma: 2 })).toBeCloseTo(0.5);
+  });
+
+  it('compiles shaping to a deterministic 256-entry byte LUT', () => {
+    const lut = buildMaskLut({ ...defaults, maskBlackPoint: 25, maskWhitePoint: 75, maskGamma: 2 });
+    expect(lut).toHaveLength(256);
+    expect(lut[0]).toBe(0);
+    expect(lut[255]).toBe(255);
+    expect(lut[128]).toBeGreaterThan(175);
+  });
+
+  it('applies mask shaping before inversion and strength', () => {
+    const base = raster(1, 1, [50, 60, 70, 200]);
+    const mask = raster(1, 1, [128, 128, 128, 255]);
+    const output = maskRaster(base, mask, {
+      ...defaults,
+      maskBlackPoint: 50,
+      maskWhitePoint: 100,
+      maskInvert: true,
+      maskStrength: 50,
+    });
+    expect(output.data[3]).toBeGreaterThanOrEqual(198);
   });
 
   it('uses the selected alpha channel independently of mask RGB', () => {

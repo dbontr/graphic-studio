@@ -1,5 +1,6 @@
 import type { MaskChannel, StudioNodeData } from '../model';
 import { MASK_WGSL, maskChannelIds } from './mask-webgpu';
+import { buildMaskLut } from './mask';
 import type { Raster } from './types';
 
 function nextCapacity(bytes: number): number {
@@ -144,19 +145,16 @@ export class MaskGpuEngine {
     );
     const channel = (node.maskChannel ?? 'luminance') as MaskChannel;
     const parameterBuffer = device.createBuffer({
-      size: 16,
+      size: 65 * 16,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
-    device.queue.writeBuffer(
-      parameterBuffer,
-      0,
-      new Float32Array([
-        maskChannelIds[channel] ?? 0,
-        node.maskInvert ? 1 : 0,
-        Math.max(0, Math.min(1, Number(node.maskStrength ?? 100) / 100)),
-        0,
-      ]),
-    );
+    const lut = buildMaskLut(node);
+    const params = new Uint32Array(65 * 4);
+    params[0] = maskChannelIds[channel] ?? 0;
+    for (let index = 0; index < 256; index += 1) {
+      params[4 + index] = lut[index];
+    }
+    device.queue.writeBuffer(parameterBuffer, 0, params);
 
     const pipeline = await this.getPipeline(device);
     const bindGroup = device.createBindGroup({
