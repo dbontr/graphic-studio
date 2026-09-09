@@ -4,6 +4,7 @@ export type NodeKind =
   | 'source'
   | 'adjust'
   | 'curves'
+  | 'blend'
   | 'transform'
   | 'pixelate'
   | 'posterize'
@@ -61,6 +62,19 @@ export type PalettePreset =
 export type ConvolutionMode = 'blur' | 'sharpen' | 'edge' | 'emboss';
 export type TransformRotation = 0 | 90 | 180 | 270;
 export type ResampleMode = 'nearest' | 'bilinear';
+export type BlendMode =
+  | 'normal'
+  | 'multiply'
+  | 'screen'
+  | 'overlay'
+  | 'soft-light'
+  | 'hard-light'
+  | 'darken'
+  | 'lighten'
+  | 'difference'
+  | 'exclusion'
+  | 'add'
+  | 'subtract';
 
 export interface StudioNodeData extends Record<string, unknown> {
   kind: NodeKind;
@@ -79,6 +93,8 @@ export interface StudioNodeData extends Record<string, unknown> {
   curveGreen?: number[];
   curveBlue?: number[];
   curveChannel?: 'master' | 'red' | 'green' | 'blue';
+  blendMode?: BlendMode;
+  opacity?: number;
   rotation?: TransformRotation;
   flipX?: boolean;
   flipY?: boolean;
@@ -182,6 +198,11 @@ export const effectDefaults: Record<
     curveGreen: [0, 64, 128, 192, 255],
     curveBlue: [0, 64, 128, 192, 255],
     curveChannel: 'master',
+  },
+  blend: {
+    label: 'Blend',
+    blendMode: 'normal',
+    opacity: 100,
   },
   transform: {
     label: 'Transform',

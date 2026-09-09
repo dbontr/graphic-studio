@@ -1,4 +1,5 @@
 import type {
+  BlendMode,
   DitherAlgorithm,
   ErrorDiffusionAlgorithm,
   PalettePreset,
@@ -6,7 +7,13 @@ import type {
   StudioFlowNode,
   StudioNodeData,
 } from '../model';
-import type { ExportOptions, PipelineStage, Raster, RenderPlan } from './types';
+import type {
+  ExportOptions,
+  GraphPlanNode,
+  PipelineStage,
+  Raster,
+  RenderPlan,
+} from './types';
 import { transformRaster } from './transform';
 import { errorDiffusion } from './diffusion';
 import { BLUE_NOISE_32, BLUE_NOISE_SIDE } from './blue-noise';
@@ -102,6 +109,8 @@ export function stableStageSignature(stage: PipelineStage): string {
     d.curveRed,
     d.curveGreen,
     d.curveBlue,
+    d.blendMode,
+    d.opacity,
     d.rotation,
     d.flipX,
     d.flipY,
@@ -133,36 +142,104 @@ export function compilePipeline(
   edges: StudioEdge[],
 ): RenderPlan {
   const byId = new Map(nodes.map((node) => [node.id, node]));
-  const incoming = new Map<string, string>();
-  for (const edge of edges) incoming.set(edge.target, edge.source);
+  const incoming = new Map<string, StudioEdge[]>();
+  for (const edge of edges) {
+    const values = incoming.get(edge.target) ?? [];
+    values.push(edge);
+    incoming.set(edge.target, values);
+  }
 
   const output = nodes.find((node) => node.data.kind === 'output');
   if (!output) return { stages: [], signature: 'no-output' };
 
-  const reverse: PipelineStage[] = [];
+  const graphNodes: GraphPlanNode[] = [];
   const visited = new Set<string>();
-  let currentId: string | undefined = output.id;
-  let foundSource = false;
-  while (currentId) {
-    if (visited.has(currentId)) return { stages: [], signature: 'cycle' };
-    visited.add(currentId);
-    const node = byId.get(currentId);
-    if (!node) break;
+  const visiting = new Set<string>();
+  let failure = '';
+
+  const visit = (id: string): void => {
+    if (failure || visited.has(id)) return;
+    if (visiting.has(id)) {
+      failure = 'cycle';
+      return;
+    }
+    const node = byId.get(id);
+    if (!node) {
+      failure = 'missing-node';
+      return;
+    }
+
+    const allInputs = incoming.get(id) ?? [];
+    let selected: StudioEdge[] = [];
     if (node.data.kind === 'source') {
-      foundSource = true;
-      break;
+      selected = [];
+    } else if (node.data.kind === 'blend') {
+      const base = allInputs.filter((edge) => edge.targetHandle === 'base');
+      const blend = allInputs.filter((edge) => edge.targetHandle === 'blend');
+      if (base.length !== 1 || (node.data.enabled !== false && blend.length !== 1)) {
+        failure = 'disconnected';
+        return;
+      }
+      selected = node.data.enabled === false ? [base[0]] : [base[0], blend[0]];
+    } else {
+      if (allInputs.length !== 1) {
+        failure = allInputs.length ? 'ambiguous-input' : 'disconnected';
+        return;
+      }
+      selected = [allInputs[0]];
     }
-    if (node.data.kind !== 'output' && node.data.enabled !== false) {
-      reverse.push({ id: node.id, data: { ...node.data } });
-    }
-    currentId = incoming.get(currentId);
+
+    visiting.add(id);
+    for (const edge of selected) visit(edge.source);
+    visiting.delete(id);
+    if (failure) return;
+
+    graphNodes.push({
+      id,
+      data: { ...node.data },
+      inputs: selected.map((edge) => ({
+        source: edge.source,
+        port: edge.targetHandle ?? null,
+      })),
+    });
+    visited.add(id);
+  };
+
+  visit(output.id);
+  if (failure) return { stages: [], signature: failure };
+
+  const activeBlend = graphNodes.some(
+    (node) => node.data.kind === 'blend' && node.data.enabled !== false,
+  );
+  const stages = graphNodes
+    .filter((node) =>
+      node.data.kind !== 'source'
+      && node.data.kind !== 'output'
+      && node.data.enabled !== false,
+    )
+    .map((node) => ({ id: node.id, data: { ...node.data } }));
+
+  if (!activeBlend) {
+    return {
+      stages,
+      signature: stages.map(stableStageSignature).join('|'),
+    };
   }
 
-  if (!foundSource) return { stages: [], signature: 'disconnected' };
-  const stages = reverse.reverse();
+  const signature = graphNodes.map((node) => {
+    const inputSignature = node.inputs
+      .map((input) => `${input.port ?? 'in'}:${input.source}`)
+      .join(',');
+    const nodeSignature = node.data.kind === 'source' || node.data.kind === 'output'
+      ? `${node.id}:${node.data.kind}`
+      : stableStageSignature({ id: node.id, data: node.data });
+    return `${nodeSignature}<-${inputSignature}`;
+  }).join('|');
+
   return {
     stages,
-    signature: stages.map(stableStageSignature).join('|'),
+    signature,
+    graph: { outputId: output.id, nodes: graphNodes },
   };
 }
 
@@ -236,6 +313,79 @@ export function curveRaster(raster: Raster, node: StudioNodeData): Raster {
     output.data[index] = red[master[output.data[index]]];
     output.data[index + 1] = green[master[output.data[index + 1]]];
     output.data[index + 2] = blue[master[output.data[index + 2]]];
+  }
+  return output;
+}
+
+const clamp01 = (value: number) => Math.max(0, Math.min(1, value));
+
+function blendChannel(base: number, layer: number, mode: BlendMode): number {
+  switch (mode) {
+    case 'multiply':
+      return base * layer;
+    case 'screen':
+      return 1 - (1 - base) * (1 - layer);
+    case 'overlay':
+      return base < 0.5 ? 2 * base * layer : 1 - 2 * (1 - base) * (1 - layer);
+    case 'soft-light':
+      return (1 - 2 * layer) * base * base + 2 * layer * base;
+    case 'hard-light':
+      return layer < 0.5 ? 2 * base * layer : 1 - 2 * (1 - base) * (1 - layer);
+    case 'darken':
+      return Math.min(base, layer);
+    case 'lighten':
+      return Math.max(base, layer);
+    case 'difference':
+      return Math.abs(base - layer);
+    case 'exclusion':
+      return base + layer - 2 * base * layer;
+    case 'add':
+      return Math.min(1, base + layer);
+    case 'subtract':
+      return Math.max(0, base - layer);
+    default:
+      return layer;
+  }
+}
+
+export function blendRaster(
+  base: Raster,
+  layer: Raster,
+  node: StudioNodeData,
+): Raster {
+  const output = copyRaster(base);
+  const mode = (node.blendMode ?? 'normal') as BlendMode;
+  const opacity = clamp(Number(node.opacity ?? 100), 0, 100) / 100;
+  if (opacity <= 0 || !layer.width || !layer.height) return output;
+
+  for (let y = 0; y < base.height; y += 1) {
+    const sourceY = Math.min(
+      layer.height - 1,
+      Math.floor(((y + 0.5) / base.height) * layer.height),
+    );
+    for (let x = 0; x < base.width; x += 1) {
+      const sourceX = Math.min(
+        layer.width - 1,
+        Math.floor(((x + 0.5) / base.width) * layer.width),
+      );
+      const baseIndex = (y * base.width + x) * 4;
+      const layerIndex = (sourceY * layer.width + sourceX) * 4;
+      const baseAlpha = base.data[baseIndex + 3] / 255;
+      const layerAlpha = (layer.data[layerIndex + 3] / 255) * opacity;
+      const outputAlpha = layerAlpha + baseAlpha * (1 - layerAlpha);
+
+      for (let channel = 0; channel < 3; channel += 1) {
+        const baseValue = base.data[baseIndex + channel] / 255;
+        const layerValue = layer.data[layerIndex + channel] / 255;
+        const blended = clamp01(blendChannel(baseValue, layerValue, mode));
+        const premultiplied = blended * layerAlpha
+          + baseValue * baseAlpha * (1 - layerAlpha);
+        output.data[baseIndex + channel] = clampByte(
+          outputAlpha > 1e-8 ? (premultiplied / outputAlpha) * 255 : 0,
+        );
+      }
+      output.data[baseIndex + 3] = clampByte(outputAlpha * 255);
+    }
   }
   return output;
 }

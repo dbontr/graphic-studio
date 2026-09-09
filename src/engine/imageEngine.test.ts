@@ -8,6 +8,7 @@ import {
 } from '../model';
 import {
   applyEffectCpu,
+  blendRaster,
   buildCurveLut,
   compilePipeline,
   curveRaster,
@@ -502,5 +503,93 @@ describe('blue-noise threshold screen', () => {
     }
     expect(white).toBeGreaterThan(500);
     expect(white).toBeLessThan(525);
+  });
+});
+
+describe('two-input compositing', () => {
+  const base = raster(1, 1, [100, 150, 200, 255]);
+  const layer = raster(1, 1, [200, 100, 50, 255]);
+
+  it('applies normal blending with node opacity', () => {
+    const result = blendRaster(base, layer, {
+      kind: 'blend', label: 'Blend', blendMode: 'normal', opacity: 50,
+    });
+    expect(Array.from(result.data)).toEqual([150, 125, 125, 255]);
+  });
+
+  it('implements multiply blending in normalized RGB space', () => {
+    const result = blendRaster(base, layer, {
+      kind: 'blend', label: 'Blend', blendMode: 'multiply', opacity: 100,
+    });
+    expect(Array.from(result.data)).toEqual([78, 59, 39, 255]);
+  });
+
+  it('normalizes a differently sized layer to the base canvas', () => {
+    const wideBase = raster(2, 1, [
+      0, 0, 0, 255, 255, 255, 255, 255,
+    ]);
+    const red = raster(1, 1, [255, 0, 0, 255]);
+    const result = blendRaster(wideBase, red, {
+      kind: 'blend', label: 'Blend', blendMode: 'normal', opacity: 100,
+    });
+    expect(Array.from(result.data)).toEqual([
+      255, 0, 0, 255, 255, 0, 0, 255,
+    ]);
+  });
+
+  it('bypasses cleanly at zero opacity', () => {
+    const result = blendRaster(base, layer, {
+      kind: 'blend', label: 'Blend', blendMode: 'screen', opacity: 0,
+    });
+    expect(result).not.toBe(base);
+    expect(result.data).toEqual(base.data);
+  });
+});
+
+describe('branching render graph compiler', () => {
+  const nodes: StudioFlowNode[] = [
+    node('source', { kind: 'source', label: 'Source' }),
+    node('left', { kind: 'adjust', label: 'Left', brightness: 10 }),
+    node('right', { kind: 'posterize', label: 'Right', levels: 4 }),
+    node('blend', { kind: 'blend', label: 'Blend', blendMode: 'overlay', opacity: 65 }),
+    node('output', { kind: 'output', label: 'Output' }),
+  ];
+  const edges: StudioEdge[] = [
+    { id: 's-l', source: 'source', target: 'left' },
+    { id: 's-r', source: 'source', target: 'right' },
+    { id: 'l-b', source: 'left', target: 'blend', targetHandle: 'base' },
+    { id: 'r-b', source: 'right', target: 'blend', targetHandle: 'blend' },
+    { id: 'b-o', source: 'blend', target: 'output' },
+  ];
+
+  it('compiles two branches into an ordered DAG plan', () => {
+    const plan = compilePipeline(nodes, edges);
+    expect(plan.graph).toBeDefined();
+    expect(plan.graph?.outputId).toBe('output');
+    expect(plan.graph?.nodes).toHaveLength(5);
+    expect(plan.stages.map((stage) => stage.id)).toEqual(['left', 'right', 'blend']);
+    const blend = plan.graph?.nodes.find((item) => item.id === 'blend');
+    expect(blend?.inputs).toEqual([
+      { source: 'left', port: 'base' },
+      { source: 'right', port: 'blend' },
+    ]);
+  });
+
+  it('fails closed until both active blend inputs are connected', () => {
+    const plan = compilePipeline(nodes, edges.filter((edge) => edge.id !== 'r-b'));
+    expect(plan.graph).toBeUndefined();
+    expect(plan.stages).toEqual([]);
+    expect(plan.signature).toBe('disconnected');
+  });
+
+  it('collapses a bypassed blend back to its base branch', () => {
+    const bypassed = nodes.map((item) => item.id === 'blend'
+      ? node('blend', {
+          kind: 'blend', label: 'Blend', blendMode: 'overlay', opacity: 65, enabled: false,
+        })
+      : item);
+    const plan = compilePipeline(bypassed, edges.filter((edge) => edge.id !== 'r-b'));
+    expect(plan.graph).toBeUndefined();
+    expect(plan.stages.map((stage) => stage.id)).toEqual(['left']);
   });
 });

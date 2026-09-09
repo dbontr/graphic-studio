@@ -20,6 +20,7 @@ import {
   Gauge,
   Crop,
   Grid3X3,
+  Layers,
   Palette as PaletteIcon,
   Play,
   Plus,
@@ -139,6 +140,7 @@ function exportNameForSource(fileName: string): string {
 const palette = [
   { kind: 'adjust' as const, label: 'Color + tone', icon: SlidersHorizontal, hint: 'Exposure, gamma, temperature' },
   { kind: 'curves' as const, label: 'Curves', icon: TrendingUp, hint: 'Master + RGB tone curves' },
+  { kind: 'blend' as const, label: 'Blend', icon: Layers, hint: 'Two-input compositing' },
   { kind: 'transform' as const, label: 'Transform', icon: Crop, hint: 'Crop, rotate, flip, resize' },
   { kind: 'dither' as const, label: 'Dither', icon: Sparkles, hint: '25 algorithms + screens' },
   { kind: 'palette' as const, label: 'Palette map', icon: PaletteIcon, hint: 'Retro + grayscale palettes' },
@@ -404,8 +406,16 @@ export default function App() {
       const target = nodes.find((node) => node.id === connection.target);
       if (!source || !target) return false;
       if (source.data.kind === 'output' || target.data.kind === 'source') return false;
-      const withoutTarget = edges.filter((edge) => edge.target !== connection.target);
-      return !hasPath(withoutTarget, connection.target, connection.source);
+
+      const blendTarget = target.data.kind === 'blend';
+      const targetHandle = connection.targetHandle ?? null;
+      if (blendTarget && targetHandle !== 'base' && targetHandle !== 'blend') return false;
+      const withoutSlot = edges.filter((edge) => {
+        if (edge.target !== connection.target) return true;
+        if (!blendTarget) return false;
+        return (edge.targetHandle ?? null) !== targetHandle;
+      });
+      return !hasPath(withoutSlot, connection.target, connection.source);
     },
     [nodes, edges],
   );
@@ -414,17 +424,25 @@ export default function App() {
     (connection: Connection) => {
       if (!isValidConnection(connection)) return;
       checkpoint();
-      setEdges((items) =>
-        addEdge(
+      setEdges((items) => {
+        const target = nodes.find((node) => node.id === connection.target);
+        const blendTarget = target?.data.kind === 'blend';
+        const targetHandle = connection.targetHandle ?? null;
+        const remaining = items.filter((edge) => {
+          if (edge.target !== connection.target) return true;
+          if (!blendTarget) return false;
+          return (edge.targetHandle ?? null) !== targetHandle;
+        });
+        return addEdge(
           {
             ...connection,
-            id: `${connection.source}-${connection.target}-${crypto.randomUUID().slice(0, 8)}`,
+            id: `${connection.source}-${connection.target}-${targetHandle ?? 'in'}-${crypto.randomUUID().slice(0, 8)}`,
           },
-          items.filter((edge) => edge.target !== connection.target),
-        ),
-      );
+          remaining,
+        );
+      });
     },
-    [checkpoint, isValidConnection, setEdges],
+    [checkpoint, isValidConnection, nodes, setEdges],
   );
 
   const handleNodesChange = useCallback(
@@ -472,7 +490,7 @@ export default function App() {
         : node,
     );
     const payload = JSON.stringify(
-      { version: 2, nodes: portableNodes, edges, app: 'Graphic Studio' },
+      { version: 3, nodes: portableNodes, edges, app: 'Graphic Studio' },
       null,
       2,
     );

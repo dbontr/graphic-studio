@@ -1599,3 +1599,76 @@ button {
   width: 82%;
   margin: 4px auto 0;
 }
+
+.studio-node--blend {
+  width: 276px;
+}
+
+.studio-node--blend .node-icon {
+  color: #ff9fb5;
+  background: rgba(255, 116, 151, 0.11);
+}
+
+.studio-node--blend .studio-handle {
+  background: #ff91ad !important;
+}
+
+.blend-handle--base {
+  top: 40% !important;
+}
+
+.blend-handle--layer {
+  top: 67% !important;
+}
+
+.blend-port-label {
+  position: absolute;
+  z-index: 3;
+  left: 7px;
+  color: #817975;
+  font-size: 8px;
+  font-weight: 800;
+  pointer-events: none;
+}
+.blend-port-label--base {
+  top: calc(40% - 4px);
+}
+
+.blend-port-label--layer {
+  top: calc(67% - 4px);
+}
+
+.blend-input-key {
+  display: flex;
+  gap: 14px;
+  margin-bottom: 12px;
+  color: #7b7470;
+  font-size: 9px;
+}
+
+.blend-input-key span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.blend-input-key i {
+  width: 17px;
+  height: 17px;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid rgba(255, 145, 173, 0.28);
+  border-radius: 5px;
+  background: rgba(255, 145, 173, 0.06);
+  color: #d9a3b1;
+  font-size: 8px;
+  font-style: normal;
+  font-weight: 800;
+}
+
+.blend-note {
+  margin: 3px 0 0;
+  color: #69625f;
+  font-size: 8px;
+  line-height: 1.4;
+}
