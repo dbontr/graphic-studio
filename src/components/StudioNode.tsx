@@ -456,6 +456,15 @@ export function StudioNode({ id, data, selected }: NodeProps<StudioFlowNode>) {
             onChange={(maskStrength) => update({ maskStrength })}
           />
           <RangeControl
+            label="Feather"
+            value={Number(data.maskFeather ?? 0)}
+            min={0}
+            max={64}
+            unit=" px"
+            onBegin={studio.checkpoint}
+            onChange={(maskFeather) => update({ maskFeather })}
+          />
+          <RangeControl
             label="Black point"
             value={Number(data.maskBlackPoint ?? 0)}
             min={0}

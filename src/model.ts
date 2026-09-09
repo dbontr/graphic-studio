@@ -100,6 +100,7 @@ export interface StudioNodeData extends Record<string, unknown> {
   maskChannel?: MaskChannel;
   maskInvert?: boolean;
   maskStrength?: number;
+  maskFeather?: number;
   maskBlackPoint?: number;
   maskWhitePoint?: number;
   maskGamma?: number;
@@ -217,6 +218,7 @@ export const effectDefaults: Record<
     maskChannel: 'luminance',
     maskInvert: false,
     maskStrength: 100,
+    maskFeather: 0,
     maskBlackPoint: 0,
     maskWhitePoint: 100,
     maskGamma: 1,

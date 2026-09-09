@@ -19,6 +19,7 @@ const defaults: StudioNodeData = {
   maskChannel: 'luminance',
   maskInvert: false,
   maskStrength: 100,
+  maskFeather: 0,
 };
 
 describe('mask compositor', () => {
@@ -66,6 +67,36 @@ describe('mask compositor', () => {
     expect([
       output.data[3], output.data[7], output.data[11], output.data[15],
     ]).toEqual([0, 0, 255, 255]);
+  });
+
+  it('feathers normalized mask edges with a separable clamped box blur', () => {
+    const base = raster(5, 1, [
+      1, 1, 1, 255,
+      2, 2, 2, 255,
+      3, 3, 3, 255,
+      4, 4, 4, 255,
+      5, 5, 5, 255,
+    ]);
+    const mask = raster(5, 1, [
+      0, 0, 0, 255,
+      0, 0, 0, 255,
+      255, 255, 255, 255,
+      255, 255, 255, 255,
+      255, 255, 255, 255,
+    ]);
+    const output = maskRaster(base, mask, { ...defaults, maskFeather: 1 });
+    expect([output.data[3], output.data[7], output.data[11], output.data[15], output.data[19]])
+      .toEqual([0, 85, 170, 255, 255]);
+  });
+
+  it('feathers vertically with the same integer rounding semantics', () => {
+    const base = raster(3, 3, Array.from({ length: 9 }, () => [10, 20, 30, 255]).flat());
+    const pixels = Array.from({ length: 9 }, (_, index) =>
+      index === 4 ? [255, 255, 255, 255] : [0, 0, 0, 255],
+    ).flat();
+    const output = maskRaster(base, raster(3, 3, pixels), { ...defaults, maskFeather: 1 });
+    const alphas = Array.from({ length: 9 }, (_, index) => output.data[index * 4 + 3]);
+    expect(alphas).toEqual(Array(9).fill(28));
   });
 
   it('uses an integer Rec.709 luminance byte for cross-backend determinism', () => {

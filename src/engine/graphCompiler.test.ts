@@ -80,13 +80,14 @@ describe('multi-input graph compiler', () => {
       node('mask-source', 'adjust'),
       node('output', 'output'),
     ];
-    const makeMask = (strength: number): StudioFlowNode => ({
+    const makeMask = (strength: number, feather = 0): StudioFlowNode => ({
       ...node('mask', 'mask'),
       data: {
         kind: 'mask',
         label: 'Mask',
         maskChannel: 'luminance',
         maskStrength: strength,
+        maskFeather: feather,
       },
     });
     const edges: StudioEdge[] = [
@@ -97,6 +98,8 @@ describe('multi-input graph compiler', () => {
     ];
     const first = compileRenderGraph([...baseNodes, makeMask(25)], edges);
     const second = compileRenderGraph([...baseNodes, makeMask(80)], edges);
+    const feathered = compileRenderGraph([...baseNodes, makeMask(25, 9)], edges);
     expect(first.signature).not.toBe(second.signature);
+    expect(first.signature).not.toBe(feathered.signature);
   });
 });
