@@ -1,4 +1,5 @@
 import type { StudioEdge, StudioFlowNode } from '../model';
+import { expandSubgraphs } from '../subgraphs';
 import { stableStageSignature } from './imageEngine';
 import type { GraphPlanNode, PipelineStage, RenderPlan } from './types';
 
@@ -16,6 +17,15 @@ function stageSignature(stage: PipelineStage): string {
     d.maskBlackPoint,
     d.maskWhitePoint,
     d.maskGamma,
+    d.maskBlurRadius,
+    d.maskMorphology,
+    d.maskMorphRadius,
+    d.maskExpand,
+    d.maskThreshold,
+    d.maskCurve,
+    d.maskKeyColor,
+    d.maskKeyTolerance,
+    d.maskPreview,
   ]);
 }
 
@@ -23,15 +33,19 @@ export function compileRenderGraph(
   nodes: StudioFlowNode[],
   edges: StudioEdge[],
 ): RenderPlan {
-  const byId = new Map(nodes.map((node) => [node.id, node]));
+  const expanded = expandSubgraphs(nodes, edges);
+  if (expanded.error) return { stages: [], signature: `subgraph:${expanded.error}` };
+  const workingNodes = expanded.nodes;
+  const workingEdges = expanded.edges;
+  const byId = new Map(workingNodes.map((node) => [node.id, node]));
   const incoming = new Map<string, StudioEdge[]>();
-  for (const edge of edges) {
+  for (const edge of workingEdges) {
     const values = incoming.get(edge.target) ?? [];
     values.push(edge);
     incoming.set(edge.target, values);
   }
 
-  const output = nodes.find((node) => node.data.kind === 'output');
+  const output = workingNodes.find((node) => node.data.kind === 'output');
   if (!output) return { stages: [], signature: 'no-output' };
 
   const graphNodes: GraphPlanNode[] = [];
@@ -53,10 +67,10 @@ export function compileRenderGraph(
 
     const allInputs = incoming.get(id) ?? [];
     let selected: StudioEdge[] = [];
-    if (node.data.kind === 'source') {
+    if (node.data.kind === 'source' || node.data.kind === 'text' || node.data.kind === 'shape' || node.data.kind === 'gradient' || node.data.kind === 'generator') {
       selected = [];
-    } else if (node.data.kind === 'blend' || node.data.kind === 'mask') {
-      const secondaryPort = node.data.kind === 'blend' ? 'blend' : 'mask';
+    } else if (node.data.kind === 'blend' || node.data.kind === 'mask' || node.data.kind === 'overlay') {
+      const secondaryPort = node.data.kind === 'blend' ? 'blend' : node.data.kind === 'mask' ? 'mask' : 'overlay';
       const base = allInputs.filter((edge) => edge.targetHandle === 'base');
       const secondary = allInputs.filter((edge) => edge.targetHandle === secondaryPort);
       if (base.length !== 1 || (node.data.enabled !== false && secondary.length !== 1)) {
@@ -93,8 +107,11 @@ export function compileRenderGraph(
 
   const activeMultiInput = graphNodes.some(
     (node) =>
-      (node.data.kind === 'blend' || node.data.kind === 'mask')
+      (node.data.kind === 'blend' || node.data.kind === 'mask' || node.data.kind === 'overlay')
       && node.data.enabled !== false,
+  );
+  const hasGeneratorRoot = graphNodes.some((node) =>
+    node.data.kind === 'text' || node.data.kind === 'shape' || node.data.kind === 'gradient' || node.data.kind === 'generator',
   );
   const stages = graphNodes
     .filter((node) =>
@@ -104,7 +121,7 @@ export function compileRenderGraph(
     )
     .map((node) => ({ id: node.id, data: { ...node.data } }));
 
-  if (!activeMultiInput) {
+  if (!activeMultiInput && !hasGeneratorRoot) {
     return {
       stages,
       signature: stages.map(stageSignature).join('|'),

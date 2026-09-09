@@ -102,4 +102,47 @@ describe('multi-input graph compiler', () => {
     expect(first.signature).not.toBe(second.signature);
     expect(first.signature).not.toBe(feathered.signature);
   });
-});
+
+  it('compiles a procedural generator as a valid no-input graph root', () => {
+    const nodes = [
+      { ...node('generator', 'generator'), data: { kind: 'generator' as const, label: 'Noise', generatorType: 'noise' as const, canvasWidth: 320, canvasHeight: 240 } },
+      node('posterize', 'posterize'),
+      node('output', 'output'),
+    ];
+    const edges: StudioEdge[] = [
+      { id: 'g-p', source: 'generator', target: 'posterize' },
+      { id: 'p-o', source: 'posterize', target: 'output' },
+    ];
+    const plan = compileRenderGraph(nodes, edges);
+    expect(plan.graph?.outputId).toBe('output');
+    expect(plan.graph?.nodes.find((entry) => entry.id === 'generator')?.inputs).toEqual([]);
+  });
+
+  it('compiles an overlay with explicit base and overlay ports', () => {
+    const nodes = [node('source', 'source'), node('layer', 'gradient'), node('overlay', 'overlay'), node('output', 'output')];
+    const edges: StudioEdge[] = [
+      { id: 'base', source: 'source', target: 'overlay', targetHandle: 'base' },
+      { id: 'layer', source: 'layer', target: 'overlay', targetHandle: 'overlay' },
+      { id: 'out', source: 'overlay', target: 'output' },
+    ];
+    const plan = compileRenderGraph(nodes, edges);
+    expect(plan.graph?.nodes.find((entry) => entry.id === 'overlay')?.inputs).toEqual([
+      { source: 'source', port: 'base' },
+      { source: 'layer', port: 'overlay' },
+    ]);
+  });
+
+  it('includes advanced mask controls in semantic signatures', () => {
+    const mask = { ...node('mask', 'mask'), data: { kind: 'mask' as const, label: 'Mask', maskBlurRadius: 0, maskMorphology: 'none' as const } };
+    const nodes = [node('source', 'source'), node('mask-source', 'adjust'), mask, node('output', 'output')];
+    const edges: StudioEdge[] = [
+      { id: 'm-source', source: 'source', target: 'mask-source' },
+      { id: 'base', source: 'source', target: 'mask', targetHandle: 'base' },
+      { id: 'mask', source: 'mask-source', target: 'mask', targetHandle: 'mask' },
+      { id: 'out', source: 'mask', target: 'output' },
+    ];
+    const baseline = compileRenderGraph(nodes, edges).signature;
+    mask.data.maskBlurRadius = 7;
+    const blurred = compileRenderGraph(nodes, edges).signature;
+    expect(blurred).not.toBe(baseline);
+  });});

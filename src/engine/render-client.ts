@@ -13,6 +13,7 @@ type WorkerResponse =
   | { id: number; ok: true; type: 'palette'; colors: string[] }
   | { id: number; ok: true; type: 'render'; frame: RenderedFrame }
   | { id: number; ok: true; type: 'export'; image: RenderedImage }
+  | { id: number; ok: true; type: 'batch-item'; image: RenderedImage }
   | { id: number; ok: false; error: string };
 
 type Pending = {
@@ -22,6 +23,7 @@ type Pending = {
 
 type QueuedRender = {
   plan: RenderPlan;
+  quality: 'interactive' | 'quality';
   resolve: (frame: RenderedFrame) => void;
   reject: (error: Error) => void;
 };
@@ -98,9 +100,9 @@ export class RenderEngineClient {
     return response.colors;
   }
 
-  render(plan: RenderPlan): Promise<RenderedFrame> {
+  render(plan: RenderPlan, quality: 'interactive' | 'quality' = 'quality'): Promise<RenderedFrame> {
     return new Promise((resolve, reject) => {
-      const request: QueuedRender = { plan, resolve, reject };
+      const request: QueuedRender = { plan, quality, resolve, reject };
       if (this.activeRenderId !== null) {
         this.queuedRender?.reject(
           new DOMException('A newer render superseded this request.', 'AbortError'),
@@ -125,7 +127,7 @@ export class RenderEngineClient {
       },
       reject: request.reject,
     });
-    this.worker.postMessage({ id, type: 'render', plan: request.plan });
+    this.worker.postMessage({ id, type: 'render', plan: request.plan, quality: request.quality });
   }
 
   private dispatchQueuedRender(): void {
@@ -133,6 +135,14 @@ export class RenderEngineClient {
     const next = this.queuedRender;
     this.queuedRender = null;
     this.dispatchRender(next);
+  }
+
+  async exportFile(file: File, plan: RenderPlan, options: ExportOptions, maxDimension = 8192): Promise<RenderedImage> {
+    const response = await this.rpc({ type: 'batch-item', file, plan, options, maxDimension });
+    if (!response.ok || response.type !== 'batch-item') {
+      throw new Error('Unexpected batch export response.');
+    }
+    return response.image;
   }
 
   async export(plan: RenderPlan, options: ExportOptions): Promise<RenderedImage> {

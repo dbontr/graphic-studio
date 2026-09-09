@@ -10,6 +10,7 @@ import {
   Layers,
   Palette as PaletteIcon,
   Plus,
+  RotateCcw,
   ScanLine,
   X,
   SlidersHorizontal,
@@ -20,7 +21,9 @@ import { Handle, Position, type NodeProps } from '@xyflow/react';
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import {
   ERROR_DIFFUSION_ALGORITHMS,
+  effectDefaults,
   type ErrorDiffusionAlgorithm,
+  type GradientStop,
   type StudioFlowNode,
 } from '../model';
 import { useStudio } from '../studio-context';
@@ -31,6 +34,12 @@ const kindIcon = {
   curves: TrendingUp,
   blend: Layers,
   mask: CircleDot,
+  overlay: Layers,
+  text: ImageIcon,
+  shape: CircleDot,
+  gradient: PaletteIcon,
+  generator: Sparkles,
+  subgraph: Layers,
   transform: Crop,
   pixelate: Grid3X3,
   posterize: CircleDot,
@@ -152,6 +161,45 @@ function RangeControl({
   );
 }
 
+function ColorControl({ label, value, onBegin, onChange }: { label: string; value: string; onBegin: () => void; onChange: (value: string) => void }) {
+  return (
+    <label className="node-color nodrag">
+      <span>{label}</span>
+      <input type="color" value={/^#[0-9a-f]{6}$/i.test(value) ? value : '#ffffff'} onPointerDown={onBegin} onChange={(event) => onChange(event.target.value)} />
+    </label>
+  );
+}
+
+function TextControl({ label, value, multiline = false, onBegin, onChange }: { label: string; value: string; multiline?: boolean; onBegin: () => void; onChange: (value: string) => void }) {
+  return (
+    <label className="node-text-control nodrag">
+      <span>{label}</span>
+      {multiline ? (
+        <textarea value={value} onFocus={onBegin} onChange={(event) => onChange(event.target.value)} rows={3} />
+      ) : (
+        <input type="text" value={value} onFocus={onBegin} onChange={(event) => onChange(event.target.value)} />
+      )}
+    </label>
+  );
+}
+
+function GradientStopsEditor({ stops, onBegin, onChange }: { stops: GradientStop[] | undefined; onBegin: () => void; onChange: (stops: GradientStop[]) => void }) {
+  const values = (stops?.length ? stops : [{ offset: 0, color: '#111111' }, { offset: 1, color: '#f4f1ea' }]).slice(0, 8);
+  return (
+    <div className="gradient-stops nodrag">
+      <span className="node-section-label">Color stops</span>
+      {values.map((stop, index) => (
+        <div className="gradient-stop-row" key={`${index}-${stop.offset}`}>
+          <input type="color" value={stop.color} onPointerDown={onBegin} onChange={(event) => onChange(values.map((item, itemIndex) => itemIndex === index ? { ...item, color: event.target.value } : item))} />
+          <input type="range" min={0} max={100} value={Math.round(stop.offset * 100)} onPointerDown={onBegin} onChange={(event) => onChange(values.map((item, itemIndex) => itemIndex === index ? { ...item, offset: Number(event.target.value) / 100 } : item).sort((a, b) => a.offset - b.offset))} />
+          <button type="button" disabled={values.length <= 2} onClick={() => { onBegin(); onChange(values.filter((_, itemIndex) => itemIndex !== index)); }}>×</button>
+        </div>
+      ))}
+      <button type="button" className="node-mini-button" disabled={values.length >= 8} onClick={() => { onBegin(); onChange([...values, { offset: 0.5, color: '#888888' }].sort((a, b) => a.offset - b.offset)); }}>+ stop</button>
+    </div>
+  );
+}
+
 const defaultCurve = [0, 64, 128, 192, 255];
 
 function safeCurve(points: number[] | undefined): number[] {
@@ -237,8 +285,8 @@ function CurveEditor({
   );
 }
 
-function MultiInputHandles({ kind }: { kind: 'blend' | 'mask' }) {
-  const secondaryId = kind === 'blend' ? 'blend' : 'mask';
+function MultiInputHandles({ kind }: { kind: 'blend' | 'mask' | 'overlay' }) {
+  const secondaryId = kind === 'blend' ? 'blend' : kind === 'mask' ? 'mask' : 'overlay';
   return (
     <>
       <Handle
@@ -255,7 +303,7 @@ function MultiInputHandles({ kind }: { kind: 'blend' | 'mask' }) {
       />
       <span className="blend-port-label blend-port-label--base">A</span>
       <span className="blend-port-label blend-port-label--layer">
-        {kind === 'blend' ? 'B' : 'M'}
+        {kind === 'blend' ? 'B' : kind === 'mask' ? 'M' : 'O'}
       </span>
     </>
   );
@@ -267,6 +315,11 @@ export function StudioNode({ id, data, selected }: NodeProps<StudioFlowNode>) {
   const [comparisonSplit, setComparisonSplit] = useState(50);
   const Icon = kindIcon[data.kind];
   const update = (patch: Partial<typeof data>) => studio.updateNodeData(id, patch);
+  const resetToDefaults = () => {
+    if (data.kind === 'source' || data.kind === 'output' || data.kind === 'subgraph') return;
+    studio.checkpoint();
+    studio.updateNodeData(id, structuredClone(effectDefaults[data.kind]));
+  };
   const commit = (patch: Partial<typeof data>) => {
     studio.checkpoint();
     update(patch);
@@ -302,9 +355,9 @@ export function StudioNode({ id, data, selected }: NodeProps<StudioFlowNode>) {
         data.enabled === false ? 'is-bypassed' : '',
       ].join(' ')}
     >
-      {data.kind === 'blend' || data.kind === 'mask' ? (
+      {data.kind === 'blend' || data.kind === 'mask' || data.kind === 'overlay' ? (
         <MultiInputHandles kind={data.kind} />
-      ) : data.kind !== 'source' ? (
+      ) : data.kind !== 'source' && data.kind !== 'text' && data.kind !== 'shape' && data.kind !== 'gradient' && data.kind !== 'generator' ? (
         <Handle type="target" position={Position.Left} className="studio-handle" />
       ) : null}
 
@@ -314,7 +367,18 @@ export function StudioNode({ id, data, selected }: NodeProps<StudioFlowNode>) {
           <p>{data.label}</p>
           <span>{data.kind}</span>
         </div>
-        {data.kind !== 'source' && data.kind !== 'output' && (
+        {data.kind !== 'source' && data.kind !== 'output' && data.kind !== 'subgraph' && (
+          <button
+            className="node-reset nodrag"
+            type="button"
+            title="Reset node to defaults"
+            aria-label="Reset node to defaults"
+            onClick={resetToDefaults}
+          >
+            <RotateCcw size={12} />
+          </button>
+        )}
+        {data.kind !== 'source' && data.kind !== 'output' && data.kind !== 'text' && data.kind !== 'shape' && data.kind !== 'gradient' && data.kind !== 'generator' && (
           <button
             className="node-bypass nodrag"
             type="button"
@@ -481,6 +545,22 @@ export function StudioNode({ id, data, selected }: NodeProps<StudioFlowNode>) {
         </div>
       )}
 
+      {data.kind === 'overlay' && (
+        <div className="node-body blend-body">
+          <div className="blend-input-key nodrag"><span><i>A</i> Base</span><span><i>O</i> Overlay</span></div>
+          <label className="node-select nodrag"><span>Blend mode</span><select value={data.overlayBlendMode ?? 'normal'} onChange={(event) => commit({ overlayBlendMode: event.target.value as typeof data.overlayBlendMode })}>
+            <option value="normal">Normal</option><option value="multiply">Multiply</option><option value="screen">Screen</option><option value="overlay">Overlay</option><option value="soft-light">Soft light</option><option value="hard-light">Hard light</option><option value="darken">Darken</option><option value="lighten">Lighten</option><option value="difference">Difference</option><option value="exclusion">Exclusion</option><option value="add">Add</option><option value="subtract">Subtract</option>
+          </select></label>
+          <RangeControl label="X" value={Number(data.overlayX ?? 0)} min={-2048} max={2048} unit=" px" onBegin={studio.checkpoint} onChange={(overlayX) => update({ overlayX })} />
+          <RangeControl label="Y" value={Number(data.overlayY ?? 0)} min={-2048} max={2048} unit=" px" onBegin={studio.checkpoint} onChange={(overlayY) => update({ overlayY })} />
+          <RangeControl label="Scale" value={Number(data.overlayScale ?? 100)} min={1} max={500} unit="%" onBegin={studio.checkpoint} onChange={(overlayScale) => update({ overlayScale })} />
+          <RangeControl label="Rotation" value={Number(data.overlayRotation ?? 0)} min={-180} max={180} unit="°" onBegin={studio.checkpoint} onChange={(overlayRotation) => update({ overlayRotation })} />
+          <RangeControl label="Anchor X" value={Number(data.overlayAnchorX ?? 50)} min={0} max={100} unit="%" onBegin={studio.checkpoint} onChange={(overlayAnchorX) => update({ overlayAnchorX })} />
+          <RangeControl label="Anchor Y" value={Number(data.overlayAnchorY ?? 50)} min={0} max={100} unit="%" onBegin={studio.checkpoint} onChange={(overlayAnchorY) => update({ overlayAnchorY })} />
+          <RangeControl label="Opacity" value={Number(data.overlayOpacity ?? 100)} min={0} max={100} unit="%" onBegin={studio.checkpoint} onChange={(overlayOpacity) => update({ overlayOpacity })} />
+        </div>
+      )}
+
       {data.kind === 'mask' && (
         <div className="node-body blend-body mask-body">
           <div className="blend-input-key nodrag">
@@ -549,6 +629,24 @@ export function StudioNode({ id, data, selected }: NodeProps<StudioFlowNode>) {
             onBegin={studio.checkpoint}
             onChange={(maskGamma) => update({ maskGamma })}
           />
+          <RangeControl label="Gaussian blur" value={Number(data.maskBlurRadius ?? 0)} min={0} max={64} unit=" px" onBegin={studio.checkpoint} onChange={(maskBlurRadius) => update({ maskBlurRadius })} />
+          <label className="node-select nodrag"><span>Morphology</span><select value={data.maskMorphology ?? 'none'} onChange={(event) => commit({ maskMorphology: event.target.value as typeof data.maskMorphology })}>
+            <option value="none">None</option><option value="dilate">Dilate / expand</option><option value="erode">Erode / contract</option><option value="open">Open</option><option value="close">Close</option>
+          </select></label>
+          {(data.maskMorphology ?? 'none') !== 'none' && <RangeControl label="Morph radius" value={Number(data.maskMorphRadius ?? 0)} min={0} max={64} unit=" px" onBegin={studio.checkpoint} onChange={(maskMorphRadius) => update({ maskMorphRadius })} />}
+          <RangeControl label="Expand / contract" value={Number(data.maskExpand ?? 0)} min={-64} max={64} unit=" px" onBegin={studio.checkpoint} onChange={(maskExpand) => update({ maskExpand })} />
+          <p className="node-section-label">Mask curve</p>
+          <CurveEditor points={data.maskCurve} onBegin={studio.checkpoint} onChange={(maskCurve) => update({ maskCurve })} />
+          <div className="curve-actions nodrag">
+            <span>Black · shadows · mid · highlights · white</span>
+            <button type="button" onClick={() => commit({ maskCurve: [...defaultCurve] })}>Reset</button>
+          </div>
+          <RangeControl label="Threshold" value={Number(data.maskThreshold ?? 0)} min={0} max={100} unit="%" onBegin={studio.checkpoint} onChange={(maskThreshold) => update({ maskThreshold })} />
+          <ColorControl label="Key color" value={String(data.maskKeyColor ?? '#ffffff')} onBegin={studio.checkpoint} onChange={(maskKeyColor) => update({ maskKeyColor })} />
+          <RangeControl label="Key tolerance" value={Number(data.maskKeyTolerance ?? 0)} min={0} max={100} unit="%" onBegin={studio.checkpoint} onChange={(maskKeyTolerance) => update({ maskKeyTolerance })} />
+          <div className="segmented nodrag mask-preview-tabs">
+            {(['result', 'mask', 'overlay'] as const).map((mode) => <button key={mode} type="button" className={(data.maskPreview ?? 'result') === mode ? 'active' : ''} onClick={() => commit({ maskPreview: mode })}>{mode}</button>)}
+          </div>
           <div className="segmented nodrag">
             <button
               className={data.maskInvert ? 'active' : ''}
@@ -559,6 +657,91 @@ export function StudioNode({ id, data, selected }: NodeProps<StudioFlowNode>) {
             </button>
           </div>
           <p className="blend-note">M is normalized to A's canvas and modulates A's alpha.</p>
+        </div>
+      )}
+
+      {data.kind === 'text' && (
+        <div className="node-body generator-body">
+          <TextControl label="Text" value={String(data.textContent ?? 'Graphic Studio')} multiline onBegin={studio.checkpoint} onChange={(textContent) => update({ textContent })} />
+          <TextControl label="Font family" value={String(data.fontFamily ?? 'Inter, Arial, sans-serif')} onBegin={studio.checkpoint} onChange={(fontFamily) => update({ fontFamily })} />
+          <RangeControl label="Width" value={Number(data.canvasWidth ?? 1024)} min={64} max={4096} unit=" px" onBegin={studio.checkpoint} onChange={(canvasWidth) => update({ canvasWidth })} />
+          <RangeControl label="Height" value={Number(data.canvasHeight ?? 1024)} min={64} max={4096} unit=" px" onBegin={studio.checkpoint} onChange={(canvasHeight) => update({ canvasHeight })} />
+          <RangeControl label="Font size" value={Number(data.fontSize ?? 96)} min={4} max={512} unit=" px" onBegin={studio.checkpoint} onChange={(fontSize) => update({ fontSize })} />
+          <RangeControl label="Weight" value={Number(data.fontWeight ?? 700)} min={100} max={900} step={100} onBegin={studio.checkpoint} onChange={(fontWeight) => update({ fontWeight })} />
+          <RangeControl label="Tracking" value={Number(data.letterSpacing ?? 0)} min={-20} max={100} unit=" px" onBegin={studio.checkpoint} onChange={(letterSpacing) => update({ letterSpacing })} />
+          <RangeControl label="Line height" value={Number(data.lineHeight ?? 1.2)} min={0.5} max={3} step={0.05} onBegin={studio.checkpoint} onChange={(lineHeight) => update({ lineHeight })} />
+          <div className="segmented nodrag">{(['left', 'center', 'right'] as const).map((align) => <button key={align} type="button" className={(data.textAlign ?? 'center') === align ? 'active' : ''} onClick={() => commit({ textAlign: align })}>{align}</button>)}</div>
+          <ColorControl label="Fill" value={String(data.fillColor ?? '#ffffff')} onBegin={studio.checkpoint} onChange={(fillColor) => update({ fillColor })} />
+          <ColorControl label="Stroke" value={String(data.strokeColor ?? '#000000')} onBegin={studio.checkpoint} onChange={(strokeColor) => update({ strokeColor })} />
+          <RangeControl label="Stroke width" value={Number(data.strokeWidth ?? 0)} min={0} max={64} unit=" px" onBegin={studio.checkpoint} onChange={(strokeWidth) => update({ strokeWidth })} />
+          <RangeControl label="Opacity" value={Number(data.textOpacity ?? 100)} min={0} max={100} unit="%" onBegin={studio.checkpoint} onChange={(textOpacity) => update({ textOpacity })} />
+        </div>
+      )}
+
+      {data.kind === 'shape' && (
+        <div className="node-body generator-body">
+          <label className="node-select nodrag"><span>Shape</span><select value={data.shapeType ?? 'rectangle'} onChange={(event) => commit({ shapeType: event.target.value as typeof data.shapeType })}><option value="rectangle">Rectangle</option><option value="rounded-rectangle">Rounded rectangle</option><option value="ellipse">Ellipse</option><option value="line">Line</option><option value="triangle">Triangle</option><option value="polygon">Polygon</option></select></label>
+          <RangeControl label="Width" value={Number(data.canvasWidth ?? 1024)} min={64} max={4096} unit=" px" onBegin={studio.checkpoint} onChange={(canvasWidth) => update({ canvasWidth })} />
+          <RangeControl label="Height" value={Number(data.canvasHeight ?? 1024)} min={64} max={4096} unit=" px" onBegin={studio.checkpoint} onChange={(canvasHeight) => update({ canvasHeight })} />
+          {(data.shapeType ?? 'rectangle') === 'rounded-rectangle' && <RangeControl label="Corner radius" value={Number(data.cornerRadius ?? 64)} min={0} max={512} unit=" px" onBegin={studio.checkpoint} onChange={(cornerRadius) => update({ cornerRadius })} />}
+          {(data.shapeType ?? 'rectangle') === 'polygon' && <RangeControl label="Sides" value={Number(data.polygonSides ?? 6)} min={3} max={16} onBegin={studio.checkpoint} onChange={(polygonSides) => update({ polygonSides })} />}
+          <ColorControl label="Fill" value={String(data.fillColor ?? '#ffffff')} onBegin={studio.checkpoint} onChange={(fillColor) => update({ fillColor })} />
+          <ColorControl label="Stroke" value={String(data.strokeColor ?? '#000000')} onBegin={studio.checkpoint} onChange={(strokeColor) => update({ strokeColor })} />
+          <RangeControl label="Stroke width" value={Number(data.shapeLineWidth ?? 0)} min={0} max={128} unit=" px" onBegin={studio.checkpoint} onChange={(shapeLineWidth) => update({ shapeLineWidth })} />
+          <RangeControl label="Opacity" value={Number(data.textOpacity ?? 100)} min={0} max={100} unit="%" onBegin={studio.checkpoint} onChange={(textOpacity) => update({ textOpacity })} />
+        </div>
+      )}
+
+      {data.kind === 'gradient' && (
+        <div className="node-body generator-body">
+          <label className="node-select nodrag"><span>Gradient</span><select value={data.gradientType ?? 'linear'} onChange={(event) => commit({ gradientType: event.target.value as typeof data.gradientType })}><option value="linear">Linear</option><option value="radial">Radial</option></select></label>
+          <RangeControl label="Width" value={Number(data.canvasWidth ?? 1024)} min={64} max={4096} unit=" px" onBegin={studio.checkpoint} onChange={(canvasWidth) => update({ canvasWidth })} />
+          <RangeControl label="Height" value={Number(data.canvasHeight ?? 1024)} min={64} max={4096} unit=" px" onBegin={studio.checkpoint} onChange={(canvasHeight) => update({ canvasHeight })} />
+          {(data.gradientType ?? 'linear') === 'linear' ? <RangeControl label="Angle" value={Number(data.gradientAngle ?? 0)} min={-180} max={180} unit="°" onBegin={studio.checkpoint} onChange={(gradientAngle) => update({ gradientAngle })} /> : <>
+            <RangeControl label="Center X" value={Number(data.gradientCenterX ?? 50)} min={0} max={100} unit="%" onBegin={studio.checkpoint} onChange={(gradientCenterX) => update({ gradientCenterX })} />
+            <RangeControl label="Center Y" value={Number(data.gradientCenterY ?? 50)} min={0} max={100} unit="%" onBegin={studio.checkpoint} onChange={(gradientCenterY) => update({ gradientCenterY })} />
+            <RangeControl label="Radius" value={Number(data.gradientRadius ?? 70)} min={1} max={200} unit="%" onBegin={studio.checkpoint} onChange={(gradientRadius) => update({ gradientRadius })} />
+          </>}
+          <GradientStopsEditor stops={data.gradientStops} onBegin={studio.checkpoint} onChange={(gradientStops) => update({ gradientStops })} />
+        </div>
+      )}
+
+      {data.kind === 'generator' && (
+        <div className="node-body generator-body">
+          <label className="node-select nodrag"><span>Generator</span><select value={data.generatorType ?? 'checkerboard'} onChange={(event) => commit({ generatorType: event.target.value as typeof data.generatorType })}><option value="solid">Solid</option><option value="checkerboard">Checkerboard</option><option value="grid">Grid</option><option value="noise">White noise</option><option value="fractal-noise">Fractal noise</option><option value="scanlines">Scanlines</option><option value="stripes">Stripes</option><option value="dot-matrix">Dot matrix</option><option value="tile">Tile</option><option value="voronoi">Voronoi</option><option value="crt">CRT</option></select></label>
+          <RangeControl label="Width" value={Number(data.canvasWidth ?? 1024)} min={64} max={4096} unit=" px" onBegin={studio.checkpoint} onChange={(canvasWidth) => update({ canvasWidth })} />
+          <RangeControl label="Height" value={Number(data.canvasHeight ?? 1024)} min={64} max={4096} unit=" px" onBegin={studio.checkpoint} onChange={(canvasHeight) => update({ canvasHeight })} />
+          <ColorControl label="Color A" value={String(data.generatorColorA ?? '#111111')} onBegin={studio.checkpoint} onChange={(generatorColorA) => update({ generatorColorA })} />
+          <ColorControl label="Color B" value={String(data.generatorColorB ?? '#f4f1ea')} onBegin={studio.checkpoint} onChange={(generatorColorB) => update({ generatorColorB })} />
+          <RangeControl label="Scale" value={Number(data.generatorScale ?? 32)} min={1} max={512} unit=" px" onBegin={studio.checkpoint} onChange={(generatorScale) => update({ generatorScale })} />
+          <RangeControl label="Seed" value={Number(data.generatorSeed ?? 1)} min={0} max={9999} onBegin={studio.checkpoint} onChange={(generatorSeed) => update({ generatorSeed })} />
+          <RangeControl label="Octaves" value={Number(data.generatorOctaves ?? 4)} min={1} max={8} onBegin={studio.checkpoint} onChange={(generatorOctaves) => update({ generatorOctaves })} />
+          <RangeControl label="Intensity" value={Number(data.generatorIntensity ?? 100)} min={0} max={200} unit="%" onBegin={studio.checkpoint} onChange={(generatorIntensity) => update({ generatorIntensity })} />
+        </div>
+      )}
+
+      {data.kind === 'subgraph' && data.subgraph && (
+        <div className="node-body subgraph-body">
+          <p className="subgraph-summary">{data.subgraph.nodes.length} nodes · {data.subgraph.bindings.length} exposed parameters</p>
+          <details className="subgraph-inspector nodrag nowheel">
+            <summary>Inspect internal graph</summary>
+            <div className="subgraph-inspector-list">
+              {data.subgraph.nodes.map((node) => (
+                <div key={node.id}>
+                  <strong>{node.data.label}</strong>
+                  <span>{node.data.kind}</span>
+                </div>
+              ))}
+            </div>
+            <small>{data.subgraph.edges.length} internal connections · input {data.subgraph.inputNodeId} · output {data.subgraph.outputNodeId}</small>
+          </details>
+          {data.subgraph.bindings.slice(0, 24).map((binding) => {
+            const value = data.subgraphValues?.[binding.key];
+            if (binding.valueType === 'number') return <RangeControl key={binding.key} label={binding.label} value={Number(value ?? 0)} min={binding.min ?? -255} max={binding.max ?? 255} step={binding.step ?? 1} onBegin={studio.checkpoint} onChange={(next) => update({ subgraphValues: { ...(data.subgraphValues ?? {}), [binding.key]: next } })} />;
+            if (binding.valueType === 'color') return <ColorControl key={binding.key} label={binding.label} value={String(value ?? '#ffffff')} onBegin={studio.checkpoint} onChange={(next) => update({ subgraphValues: { ...(data.subgraphValues ?? {}), [binding.key]: next } })} />;
+            if (binding.valueType === 'boolean') return <button key={binding.key} type="button" className={`node-mini-button nodrag ${value ? 'active' : ''}`} onClick={() => commit({ subgraphValues: { ...(data.subgraphValues ?? {}), [binding.key]: !value } })}>{binding.label}</button>;
+            return <TextControl key={binding.key} label={binding.label} value={String(value ?? '')} onBegin={studio.checkpoint} onChange={(next) => update({ subgraphValues: { ...(data.subgraphValues ?? {}), [binding.key]: next } })} />;
+          })}
         </div>
       )}
 
