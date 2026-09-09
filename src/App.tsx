@@ -197,7 +197,7 @@ export default function App() {
             x: 430 + (count % 3) * 300,
             y: 560 + Math.floor(count / 3) * 190,
           },
-          data: { kind, ...effectDefaults[kind] },
+          data: { kind, ...effectDefaults[kind] } as StudioNodeData,
         },
       ]);
       setPaletteOpen(false);
