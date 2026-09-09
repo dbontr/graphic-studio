@@ -3,6 +3,7 @@ import type { Edge, Node } from '@xyflow/react';
 export type NodeKind =
   | 'source'
   | 'adjust'
+  | 'transform'
   | 'pixelate'
   | 'posterize'
   | 'palette'
@@ -31,6 +32,8 @@ export type PalettePreset =
   | 'custom';
 
 export type ConvolutionMode = 'blur' | 'sharpen' | 'edge' | 'emboss';
+export type TransformRotation = 0 | 90 | 180 | 270;
+export type ResampleMode = 'nearest' | 'bilinear';
 
 export interface StudioNodeData extends Record<string, unknown> {
   kind: NodeKind;
@@ -44,6 +47,15 @@ export interface StudioNodeData extends Record<string, unknown> {
   gamma?: number;
   temperature?: number;
   tint?: number;
+  rotation?: TransformRotation;
+  flipX?: boolean;
+  flipY?: boolean;
+  cropLeft?: number;
+  cropTop?: number;
+  cropRight?: number;
+  cropBottom?: number;
+  scale?: number;
+  resample?: ResampleMode;
   pixelSize?: number;
   levels?: number;
   palette?: PalettePreset;
@@ -122,6 +134,18 @@ export const effectDefaults: Record<
     gamma: 1,
     temperature: 0,
     tint: 0,
+  },
+  transform: {
+    label: 'Transform',
+    rotation: 0,
+    flipX: false,
+    flipY: false,
+    cropLeft: 0,
+    cropTop: 0,
+    cropRight: 0,
+    cropBottom: 0,
+    scale: 100,
+    resample: 'bilinear',
   },
   pixelate: {
     label: 'Pixelate',

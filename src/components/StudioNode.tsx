@@ -1,5 +1,6 @@
 import {
   CircleDot,
+  Crop,
   Download,
   Eye,
   EyeOff,
@@ -20,6 +21,7 @@ import { useStudio } from '../studio-context';
 const kindIcon = {
   source: ImagePlus,
   adjust: SlidersHorizontal,
+  transform: Crop,
   pixelate: Grid3X3,
   posterize: CircleDot,
   palette: PaletteIcon,
@@ -188,6 +190,99 @@ export function StudioNode({ id, data, selected }: NodeProps<StudioFlowNode>) {
             max={100}
             onBegin={studio.checkpoint}
             onChange={(tint) => update({ tint })}
+          />
+        </div>
+      )}
+
+      {data.kind === 'transform' && (
+        <div className="node-body">
+          <label className="node-select nodrag">
+            <span>Rotation</span>
+            <select
+              value={Number(data.rotation ?? 0)}
+              onChange={(event) => commit({
+                rotation: Number(event.target.value) as typeof data.rotation,
+              })}
+            >
+              <option value={0}>0°</option>
+              <option value={90}>90° clockwise</option>
+              <option value={180}>180°</option>
+              <option value={270}>270° clockwise</option>
+            </select>
+          </label>
+          <div className="segmented transform-flips nodrag">
+            <button
+              className={data.flipX ? 'active' : ''}
+              type="button"
+              onClick={() => commit({ flipX: !data.flipX })}
+            >
+              Flip X
+            </button>
+            <button
+              className={data.flipY ? 'active' : ''}
+              type="button"
+              onClick={() => commit({ flipY: !data.flipY })}
+            >
+              Flip Y
+            </button>
+          </div>
+          <RangeControl
+            label="Scale"
+            value={Number(data.scale ?? 100)}
+            min={10}
+            max={200}
+            unit="%"
+            onBegin={studio.checkpoint}
+            onChange={(scale) => update({ scale })}
+          />
+          <label className="node-select nodrag">
+            <span>Resampling</span>
+            <select
+              value={data.resample ?? 'bilinear'}
+              onChange={(event) => commit({
+                resample: event.target.value as typeof data.resample,
+              })}
+            >
+              <option value="bilinear">Bilinear</option>
+              <option value="nearest">Nearest · pixel art</option>
+            </select>
+          </label>
+          <p className="node-section-label">Crop edges</p>
+          <RangeControl
+            label="Left"
+            value={Number(data.cropLeft ?? 0)}
+            min={0}
+            max={45}
+            unit="%"
+            onBegin={studio.checkpoint}
+            onChange={(cropLeft) => update({ cropLeft })}
+          />
+          <RangeControl
+            label="Right"
+            value={Number(data.cropRight ?? 0)}
+            min={0}
+            max={45}
+            unit="%"
+            onBegin={studio.checkpoint}
+            onChange={(cropRight) => update({ cropRight })}
+          />
+          <RangeControl
+            label="Top"
+            value={Number(data.cropTop ?? 0)}
+            min={0}
+            max={45}
+            unit="%"
+            onBegin={studio.checkpoint}
+            onChange={(cropTop) => update({ cropTop })}
+          />
+          <RangeControl
+            label="Bottom"
+            value={Number(data.cropBottom ?? 0)}
+            min={0}
+            max={45}
+            unit="%"
+            onBegin={studio.checkpoint}
+            onChange={(cropBottom) => update({ cropBottom })}
           />
         </div>
       )}
