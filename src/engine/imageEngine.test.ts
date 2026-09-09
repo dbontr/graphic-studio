@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import type { StudioEdge, StudioFlowNode, StudioNodeData } from '../model';
+import {
+  ERROR_DIFFUSION_ALGORITHMS,
+  type DitherAlgorithm,
+  type StudioEdge,
+  type StudioFlowNode,
+  type StudioNodeData,
+} from '../model';
 import {
   applyEffectCpu,
   compilePipeline,
@@ -13,6 +19,7 @@ import {
   resolvePalette,
   type Raster,
 } from './imageEngine';
+import { diffusionKernels } from './diffusion';
 import { extractPalette } from './palette-extraction';
 import { transformRaster } from './transform';
 
@@ -294,5 +301,110 @@ describe('fused transform engine', () => {
       resample: 'bilinear',
     });
     expect(result).toBe(redBlue);
+  });
+});
+
+describe('expanded dithering engine', () => {
+  it('registers every declared error-diffusion kernel with only forward taps', () => {
+    expect(Object.keys(diffusionKernels).sort()).toEqual(
+      [...ERROR_DIFFUSION_ALGORITHMS].sort(),
+    );
+    for (const taps of Object.values(diffusionKernels)) {
+      expect(taps.length).toBeGreaterThan(0);
+      for (const [dx, dy, weight] of taps) {
+        expect(dy > 0 || (dy === 0 && dx > 0)).toBe(true);
+        expect(weight).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  it('renders every error-diffusion mode deterministically with binary output', () => {
+    const source = makeDemoRaster(24, 18);
+    for (const algorithm of ERROR_DIFFUSION_ALGORITHMS) {
+      const first = ditherRaster(source, algorithm, 128, true, 1, {
+        serpentine: true,
+        diffusionStrength: 100,
+      });
+      const second = ditherRaster(source, algorithm, 128, true, 1, {
+        serpentine: true,
+        diffusionStrength: 100,
+      });
+      expect(first.data).toEqual(second.data);
+      for (let index = 0; index < first.data.length; index += 4) {
+        expect([0, 255]).toContain(first.data[index]);
+        expect(first.data[index + 1]).toBe(first.data[index]);
+        expect(first.data[index + 2]).toBe(first.data[index]);
+        expect(first.data[index + 3]).toBe(255);
+      }
+    }
+  });
+
+  it('can disable propagation and reduce diffusion to thresholding', () => {
+    const source = makeDemoRaster(20, 12);
+    const diffusion = ditherRaster(source, 'floyd-steinberg', 117, true, 1, {
+      diffusionStrength: 0,
+      serpentine: true,
+    });
+    const threshold = ditherRaster(source, 'threshold', 117, true);
+    expect(diffusion.data).toEqual(threshold.data);
+  });
+
+  it('supports serpentine scan ordering as a distinct rendering choice', () => {
+    const source = makeDemoRaster(36, 20);
+    const serpentine = ditherRaster(source, 'jarvis-judice-ninke', 128, true, 1, {
+      serpentine: true,
+    });
+    const rasterScan = ditherRaster(source, 'jarvis-judice-ninke', 128, true, 1, {
+      serpentine: false,
+    });
+    expect(serpentine.data).not.toEqual(rasterScan.data);
+  });
+
+  const parallelPatterns: DitherAlgorithm[] = [
+    'bayer-2', 'bayer-4', 'bayer-8', 'clustered-4',
+    'halftone-dot', 'halftone-line', 'crosshatch', 'cmyk-halftone',
+    'noise', 'threshold',
+  ];
+
+  it('keeps every parallel pattern eligible for WebGPU execution', () => {
+    for (const algorithm of parallelPatterns) {
+      expect(isGpuCompatible({ kind: 'dither', label: 'Dither', algorithm })).toBe(true);
+    }
+  });
+
+  it('renders procedural screens deterministically and responds to geometry controls', () => {
+    const source = makeDemoRaster(32, 24);
+    const base = ditherRaster(source, 'halftone-dot', 128, true, 1, {
+      patternScale: 6,
+      angle: 15,
+    });
+    const repeat = ditherRaster(source, 'halftone-dot', 128, true, 1, {
+      patternScale: 6,
+      angle: 15,
+    });
+    const changed = ditherRaster(source, 'halftone-dot', 128, true, 1, {
+      patternScale: 12,
+      angle: 60,
+    });
+    expect(base.data).toEqual(repeat.data);
+    expect(base.data).not.toEqual(changed.data);
+  });
+});
+
+describe('CMYK halftone', () => {
+  it('renders independent subtractive color screens on the CPU fallback', () => {
+    const source = makeDemoRaster(36, 28);
+    const result = ditherRaster(source, 'cmyk-halftone', 128, false, 1, {
+      patternScale: 7,
+    });
+    let coloredPixels = 0;
+    for (let index = 0; index < result.data.length; index += 4) {
+      const r = result.data[index];
+      const g = result.data[index + 1];
+      const b = result.data[index + 2];
+      if (r !== g || g !== b) coloredPixels += 1;
+      expect(result.data[index + 3]).toBe(255);
+    }
+    expect(coloredPixels).toBeGreaterThan(0);
   });
 });

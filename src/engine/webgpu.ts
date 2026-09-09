@@ -47,6 +47,12 @@ const BAYER4 = array<f32, 16>(
   3.0, 11.0, 1.0, 9.0,
   15.0, 7.0, 13.0, 5.0
 );
+const CLUSTER4 = array<f32, 16>(
+  12.0, 5.0, 6.0, 13.0,
+  4.0, 0.0, 1.0, 7.0,
+  11.0, 3.0, 2.0, 8.0,
+  15.0, 10.0, 9.0, 14.0
+);
 const BAYER8 = array<f32, 64>(
   0.0,32.0,8.0,40.0,2.0,34.0,10.0,42.0,
   48.0,16.0,56.0,24.0,50.0,18.0,58.0,26.0,
@@ -62,6 +68,16 @@ fn noise01(x: u32, y: u32, seed: u32) -> f32 {
   var value = ((x + 1u) * 374761393u) ^ ((y + 1u) * 668265263u) ^ ((seed + 1u) * 2246822519u);
   value = (value ^ (value >> 13u)) * 1274126177u;
   return f32(value ^ (value >> 16u)) / 4294967296.0;
+}
+
+fn dotScreen(x: f32, y: f32, angle: f32, scale: f32) -> f32 {
+  let c = cos(angle);
+  let s = sin(angle);
+  let rx = (x * c + y * s) / scale;
+  let ry = (-x * s + y * c) / scale;
+  let ux = abs(fract(rx) - 0.5) * 2.0;
+  let uy = abs(fract(ry) - 0.5) * 2.0;
+  return min(1.0, length(vec2<f32>(ux, uy)) / 1.41421356237);
 }
 `;
 
@@ -180,8 +196,35 @@ function pointPass(pass: Extract<GpuPass, { kind: 'point' }>): CompiledPass {
         Number(node.threshold ?? 128),
         node.monochrome === false ? 0 : 1,
         Number(node.seed ?? 1),
+        Number(node.patternScale ?? 8),
       );
+      const p2 = addParam(Number(node.angle ?? 45));
       const algorithm = node.algorithm ?? 'threshold';
+      if (algorithm === 'cmyk-halftone') {
+        body.push(`
+  let rgbCmyk${index} = clamp(color.rgb / 255.0, vec3<f32>(0.0), vec3<f32>(1.0));
+  let k${index} = 1.0 - max(rgbCmyk${index}.r, max(rgbCmyk${index}.g, rgbCmyk${index}.b));
+  let denom${index} = max(0.000001, 1.0 - k${index});
+  let bias${index} = (params[${p}].x - 128.0) / 255.0;
+  let cmyk${index} = clamp(vec4<f32>(
+    (1.0 - rgbCmyk${index}.r - k${index}) / denom${index} + bias${index},
+    (1.0 - rgbCmyk${index}.g - k${index}) / denom${index} + bias${index},
+    (1.0 - rgbCmyk${index}.b - k${index}) / denom${index} + bias${index},
+    k${index} + bias${index}
+  ), vec4<f32>(0.0), vec4<f32>(1.0));
+  let screenScale${index} = clamp(params[${p}].w, 3.0, 64.0);
+  let cInk${index} = select(0.0, 1.0, cmyk${index}.x >= dotScreen(f32(gid.x), f32(gid.y), 0.2617993878, screenScale${index}));
+  let mInk${index} = select(0.0, 1.0, cmyk${index}.y >= dotScreen(f32(gid.x), f32(gid.y), 1.3089969390, screenScale${index}));
+  let yInk${index} = select(0.0, 1.0, cmyk${index}.z >= dotScreen(f32(gid.x), f32(gid.y), 0.0, screenScale${index}));
+  let kInk${index} = select(0.0, 1.0, cmyk${index}.w >= dotScreen(f32(gid.x), f32(gid.y), 0.7853981634, screenScale${index}));
+  color = vec4<f32>(255.0 * vec3<f32>(
+    (1.0 - cInk${index}) * (1.0 - kInk${index}),
+    (1.0 - mInk${index}) * (1.0 - kInk${index}),
+    (1.0 - yInk${index}) * (1.0 - kInk${index})
+  ), color.a);
+`);
+        return;
+      }
       let thresholdCode = `var localThreshold${index} = params[${p}].x;`;
       if (algorithm === 'bayer-2') {
         thresholdCode += `\n  localThreshold${index} = clamp(((BAYER2[(gid.y % 2u) * 2u + (gid.x % 2u)] + 0.5) / 4.0) * 255.0 + params[${p}].x - 128.0, 0.0, 255.0);`;
@@ -189,8 +232,17 @@ function pointPass(pass: Extract<GpuPass, { kind: 'point' }>): CompiledPass {
         thresholdCode += `\n  localThreshold${index} = clamp(((BAYER4[(gid.y % 4u) * 4u + (gid.x % 4u)] + 0.5) / 16.0) * 255.0 + params[${p}].x - 128.0, 0.0, 255.0);`;
       } else if (algorithm === 'bayer-8') {
         thresholdCode += `\n  localThreshold${index} = clamp(((BAYER8[(gid.y % 8u) * 8u + (gid.x % 8u)] + 0.5) / 64.0) * 255.0 + params[${p}].x - 128.0, 0.0, 255.0);`;
+      } else if (algorithm === 'clustered-4') {
+        thresholdCode += `\n  localThreshold${index} = clamp(((CLUSTER4[(gid.y % 4u) * 4u + (gid.x % 4u)] + 0.5) / 16.0) * 255.0 + params[${p}].x - 128.0, 0.0, 255.0);`;
       } else if (algorithm === 'noise') {
         thresholdCode += `\n  localThreshold${index} = clamp(params[${p}].x + (noise01(gid.x, gid.y, u32(max(0.0, params[${p}].z))) - 0.5) * 192.0, 0.0, 255.0);`;
+      } else if (algorithm === 'halftone-dot' || algorithm === 'halftone-line' || algorithm === 'crosshatch') {
+        const patternExpression = algorithm === 'halftone-dot'
+          ? `1.0 - min(1.0, length(vec2<f32>(ux${index}, uy${index})) / 1.41421356237)`
+          : algorithm === 'crosshatch'
+            ? `max(1.0 - ux${index}, 1.0 - uy${index})`
+            : `1.0 - ux${index}`;
+        thresholdCode += `\n  let scale${index} = clamp(params[${p}].w, 2.0, 64.0);\n  let angle${index} = params[${p2}].x * 0.017453292519943295;\n  let c${index} = cos(angle${index});\n  let s${index} = sin(angle${index});\n  let rx${index} = (f32(gid.x) * c${index} + f32(gid.y) * s${index}) / scale${index};\n  let ry${index} = (-f32(gid.x) * s${index} + f32(gid.y) * c${index}) / scale${index};\n  let ux${index} = abs(fract(rx${index}) - 0.5) * 2.0;\n  let uy${index} = abs(fract(ry${index}) - 0.5) * 2.0;\n  localThreshold${index} = clamp((${patternExpression}) * 255.0 + params[${p}].x - 128.0, 0.0, 255.0);`;
       }
       body.push(`
   ${thresholdCode}

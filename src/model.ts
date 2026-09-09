@@ -11,16 +11,41 @@ export type NodeKind =
   | 'dither'
   | 'output';
 
-export type DitherAlgorithm =
+export type ErrorDiffusionAlgorithm =
   | 'floyd-steinberg'
+  | 'false-floyd-steinberg'
   | 'atkinson'
+  | 'jarvis-judice-ninke'
+  | 'stucki'
   | 'burkes'
+  | 'sierra'
+  | 'two-row-sierra'
   | 'sierra-lite'
+  | 'stevenson-arce'
+  | 'fan'
+  | 'shiau-fan'
+  | 'shiau-fan-2'
+  | 'simple-2d';
+
+export type DitherAlgorithm =
+  | ErrorDiffusionAlgorithm
   | 'bayer-2'
   | 'bayer-4'
   | 'bayer-8'
+  | 'clustered-4'
+  | 'halftone-dot'
+  | 'halftone-line'
+  | 'crosshatch'
+  | 'cmyk-halftone'
   | 'threshold'
   | 'noise';
+
+export const ERROR_DIFFUSION_ALGORITHMS = new Set<ErrorDiffusionAlgorithm>([
+  'floyd-steinberg', 'false-floyd-steinberg', 'atkinson',
+  'jarvis-judice-ninke', 'stucki', 'burkes', 'sierra',
+  'two-row-sierra', 'sierra-lite', 'stevenson-arce', 'fan',
+  'shiau-fan', 'shiau-fan-2', 'simple-2d',
+]);
 
 export type PalettePreset =
   | 'mono'
@@ -66,6 +91,10 @@ export interface StudioNodeData extends Record<string, unknown> {
   threshold?: number;
   monochrome?: boolean;
   seed?: number;
+  serpentine?: boolean;
+  diffusionStrength?: number;
+  patternScale?: number;
+  angle?: number;
 }
 
 export type StudioFlowNode = Node<StudioNodeData, 'studio'>;
@@ -105,6 +134,10 @@ export const initialNodes: StudioFlowNode[] = [
       threshold: 128,
       monochrome: true,
       seed: 1,
+      serpentine: true,
+      diffusionStrength: 100,
+      patternScale: 8,
+      angle: 45,
     },
   },
   {
@@ -171,5 +204,9 @@ export const effectDefaults: Record<
     threshold: 128,
     monochrome: true,
     seed: 1,
+    serpentine: true,
+    diffusionStrength: 100,
+    patternScale: 8,
+    angle: 45,
   },
 };

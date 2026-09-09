@@ -1,5 +1,6 @@
 import type {
   DitherAlgorithm,
+  ErrorDiffusionAlgorithm,
   PalettePreset,
   StudioEdge,
   StudioFlowNode,
@@ -7,6 +8,7 @@ import type {
 } from '../model';
 import type { PipelineStage, Raster, RenderPlan } from './types';
 import { transformRaster } from './transform';
+import { errorDiffusion } from './diffusion';
 
 export type { Raster } from './types';
 
@@ -90,6 +92,10 @@ export function stableStageSignature(stage: PipelineStage): string {
     d.threshold,
     d.monochrome,
     d.seed,
+    d.serpentine,
+    d.diffusionStrength,
+    d.patternScale,
+    d.angle,
   ]);
 }
 
@@ -364,6 +370,13 @@ const bayer8 = [
   63, 31, 55, 23, 61, 29, 53, 21,
 ];
 
+const clustered4 = [
+  12, 5, 6, 13,
+  4, 0, 1, 7,
+  11, 3, 2, 8,
+  15, 10, 9, 14,
+];
+
 function orderedDither(
   raster: Raster,
   matrix: number[],
@@ -390,6 +403,93 @@ function orderedDither(
         target[index + 1] = source[index + 1] >= localThreshold ? 255 : 0;
         target[index + 2] = source[index + 2] >= localThreshold ? 255 : 0;
       }
+    }
+  }
+  return output;
+}
+
+function proceduralPatternDither(
+  raster: Raster,
+  node: StudioNodeData,
+  algorithm: 'halftone-dot' | 'halftone-line' | 'crosshatch',
+): Raster {
+  const output = copyRaster(raster);
+  const source = raster.data;
+  const target = output.data;
+  const monochrome = node.monochrome !== false;
+  const bias = Number(node.threshold ?? 128) - 128;
+  const scale = Math.max(2, Math.min(64, Number(node.patternScale ?? 8)));
+  const radians = (Number(node.angle ?? 45) * Math.PI) / 180;
+  const cos = Math.cos(radians);
+  const sin = Math.sin(radians);
+  const fract = (value: number) => value - Math.floor(value);
+
+  for (let y = 0; y < raster.height; y += 1) {
+    for (let x = 0; x < raster.width; x += 1) {
+      const rx = (x * cos + y * sin) / scale;
+      const ry = (-x * sin + y * cos) / scale;
+      const ux = Math.abs(fract(rx) - 0.5) * 2;
+      const uy = Math.abs(fract(ry) - 0.5) * 2;
+      let pattern = 1 - ux;
+      if (algorithm === 'halftone-dot') {
+        pattern = 1 - Math.min(1, Math.hypot(ux, uy) / Math.SQRT2);
+      } else if (algorithm === 'crosshatch') {
+        pattern = Math.max(1 - ux, 1 - uy);
+      }
+      const localThreshold = clamp(pattern * 255 + bias);
+      const index = (y * raster.width + x) * 4;
+      if (monochrome) {
+        const value = luminance(source[index], source[index + 1], source[index + 2]) >= localThreshold ? 255 : 0;
+        target[index] = value;
+        target[index + 1] = value;
+        target[index + 2] = value;
+      } else {
+        target[index] = source[index] >= localThreshold ? 255 : 0;
+        target[index + 1] = source[index + 1] >= localThreshold ? 255 : 0;
+        target[index + 2] = source[index + 2] >= localThreshold ? 255 : 0;
+      }
+    }
+  }
+  return output;
+}
+
+function cmykHalftone(raster: Raster, node: StudioNodeData): Raster {
+  const output = copyRaster(raster);
+  const source = raster.data;
+  const target = output.data;
+  const scale = Math.max(3, Math.min(64, Number(node.patternScale ?? 8)));
+  const bias = (Number(node.threshold ?? 128) - 128) / 255;
+  const angles = [15, 75, 0, 45].map((degrees) => degrees * Math.PI / 180);
+  const cosines = angles.map(Math.cos);
+  const sines = angles.map(Math.sin);
+  const clamp01 = (value: number) => Math.max(0, Math.min(1, value));
+  const screen = (x: number, y: number, channel: number) => {
+    const rx = (x * cosines[channel] + y * sines[channel]) / scale;
+    const ry = (-x * sines[channel] + y * cosines[channel]) / scale;
+    const ux = Math.abs((rx - Math.floor(rx)) - 0.5) * 2;
+    const uy = Math.abs((ry - Math.floor(ry)) - 0.5) * 2;
+    return Math.min(1, Math.hypot(ux, uy) / Math.SQRT2);
+  };
+
+  for (let y = 0; y < raster.height; y += 1) {
+    for (let x = 0; x < raster.width; x += 1) {
+      const index = (y * raster.width + x) * 4;
+      const r = source[index] / 255;
+      const g = source[index + 1] / 255;
+      const b = source[index + 2] / 255;
+      const k = 1 - Math.max(r, g, b);
+      const denominator = Math.max(1e-6, 1 - k);
+      const c = clamp01((1 - r - k) / denominator + bias);
+      const m = clamp01((1 - g - k) / denominator + bias);
+      const yellow = clamp01((1 - b - k) / denominator + bias);
+      const black = clamp01(k + bias);
+      const cInk = c >= screen(x, y, 0);
+      const mInk = m >= screen(x, y, 1);
+      const yInk = yellow >= screen(x, y, 2);
+      const kInk = black >= screen(x, y, 3);
+      target[index] = cInk || kInk ? 0 : 255;
+      target[index + 1] = mInk || kInk ? 0 : 255;
+      target[index + 2] = yInk || kInk ? 0 : 255;
     }
   }
   return output;
@@ -446,95 +546,34 @@ function noiseDither(
   return output;
 }
 
-type DiffusionTap = readonly [dx: number, dy: number, weight: number];
-
-const diffusionKernels: Record<
-  Extract<DitherAlgorithm, 'floyd-steinberg' | 'atkinson' | 'burkes' | 'sierra-lite'>,
-  readonly DiffusionTap[]
-> = {
-  'floyd-steinberg': [
-    [1, 0, 7 / 16], [-1, 1, 3 / 16], [0, 1, 5 / 16], [1, 1, 1 / 16],
-  ],
-  atkinson: [
-    [1, 0, 1 / 8], [2, 0, 1 / 8], [-1, 1, 1 / 8],
-    [0, 1, 1 / 8], [1, 1, 1 / 8], [0, 2, 1 / 8],
-  ],
-  burkes: [
-    [1, 0, 8 / 32], [2, 0, 4 / 32], [-2, 1, 2 / 32], [-1, 1, 4 / 32],
-    [0, 1, 8 / 32], [1, 1, 4 / 32], [2, 1, 2 / 32],
-  ],
-  'sierra-lite': [
-    [1, 0, 2 / 4], [-1, 1, 1 / 4], [0, 1, 1 / 4],
-  ],
-};
-
-function errorDiffusion(
-  raster: Raster,
-  threshold: number,
-  monochrome: boolean,
-  algorithm: keyof typeof diffusionKernels,
-): Raster {  const output = copyRaster(raster);
-  const source = raster.data;
-  const target = output.data;
-  const width = raster.width;
-  const height = raster.height;
-  const channels = monochrome ? 1 : 3;
-  const rowLength = width * channels;
-  let current = new Float32Array(rowLength);
-  let next = new Float32Array(rowLength);
-  let next2 = new Float32Array(rowLength);
-  const taps = diffusionKernels[algorithm];
-
-  for (let y = 0; y < height; y += 1) {
-    for (let x = 0; x < width; x += 1) {
-      const pixel = y * width + x;
-      const rgbaIndex = pixel * 4;
-      for (let channel = 0; channel < channels; channel += 1) {
-        const errorIndex = x * channels + channel;
-        const base = monochrome
-          ? luminance(source[rgbaIndex], source[rgbaIndex + 1], source[rgbaIndex + 2])
-          : source[rgbaIndex + channel];
-        const oldValue = base + current[errorIndex];
-        const newValue = oldValue >= threshold ? 255 : 0;
-        const error = oldValue - newValue;
-        if (monochrome) {
-          target[rgbaIndex] = newValue;
-          target[rgbaIndex + 1] = newValue;
-          target[rgbaIndex + 2] = newValue;
-        } else {
-          target[rgbaIndex + channel] = newValue;
-        }
-
-        for (const [dx, dy, weight] of taps) {
-          const xx = x + dx;
-          if (xx < 0 || xx >= width) continue;
-          const row = dy === 0 ? current : dy === 1 ? next : next2;
-          row[xx * channels + channel] += error * weight;
-        }
-      }
-    }
-    const recycle = current;
-    current = next;
-    next = next2;
-    next2 = recycle;
-    next2.fill(0);
-  }
-  return output;
-}
-
 export function ditherRaster(
   raster: Raster,
   algorithm: DitherAlgorithm = 'floyd-steinberg',
   threshold = 128,
   monochrome = true,
   seed = 1,
+  options: Partial<StudioNodeData> = {},
 ): Raster {
+  const node: StudioNodeData = {
+    kind: 'dither',
+    label: 'Dither',
+    algorithm,
+    threshold,
+    monochrome,
+    seed,
+    ...options,
+  };
   if (algorithm === 'bayer-2') return orderedDither(raster, bayer2, 2, threshold, monochrome);
   if (algorithm === 'bayer-4') return orderedDither(raster, bayer4, 4, threshold, monochrome);
   if (algorithm === 'bayer-8') return orderedDither(raster, bayer8, 8, threshold, monochrome);
+  if (algorithm === 'clustered-4') return orderedDither(raster, clustered4, 4, threshold, monochrome);
+  if (algorithm === 'halftone-dot' || algorithm === 'halftone-line' || algorithm === 'crosshatch') {
+    return proceduralPatternDither(raster, node, algorithm);
+  }
+  if (algorithm === 'cmyk-halftone') return cmykHalftone(raster, node);
   if (algorithm === 'threshold') return thresholdDither(raster, threshold, monochrome);
   if (algorithm === 'noise') return noiseDither(raster, threshold, monochrome, seed);
-  return errorDiffusion(raster, threshold, monochrome, algorithm);
+  return errorDiffusion(raster, node, algorithm as ErrorDiffusionAlgorithm);
 }
 
 export function isGpuCompatible(node: StudioNodeData): boolean {
@@ -544,6 +583,11 @@ export function isGpuCompatible(node: StudioNodeData): boolean {
     return node.algorithm === 'bayer-2'
       || node.algorithm === 'bayer-4'
       || node.algorithm === 'bayer-8'
+      || node.algorithm === 'clustered-4'
+      || node.algorithm === 'halftone-dot'
+      || node.algorithm === 'halftone-line'
+      || node.algorithm === 'crosshatch'
+      || node.algorithm === 'cmyk-halftone'
       || node.algorithm === 'threshold'
       || node.algorithm === 'noise';
   }
@@ -570,6 +614,7 @@ export function applyEffectCpu(raster: Raster, node: StudioNodeData): Raster {
         Number(node.threshold ?? 128),
         Boolean(node.monochrome ?? true),
         Number(node.seed ?? 1),
+        node,
       );
     default:
       return copyRaster(raster);

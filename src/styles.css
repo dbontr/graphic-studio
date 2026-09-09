@@ -1083,3 +1083,7 @@ button {
   border-radius: 8px;
   font-size: 9px;
 }
+
+.dither-scan-mode {
+  margin-bottom: 13px;
+}
