@@ -1,32 +1,66 @@
-# React + TypeScript + Vite
+# Graphic Studio
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+A node-based browser graphics editor focused on dithering, pixel-art processing, and fast experimental image workflows.
 
-Currently, two official plugins are available:
+Graphic Studio is built as a static web application, so the editor runs entirely in the browser and can be hosted on GitHub Pages. Node.js is used for the development and build toolchain; image processing happens locally in the browser.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## Current editor
 
-## React Compiler
+- Infinite node canvas powered by React Flow
+- Drag-and-drop style image source node
+- Live color / tone adjustments
+- Floyd–Steinberg dithering
+- Atkinson dithering
+- Bayer 4×4 and Bayer 8×8 ordered dithering
+- Threshold dithering
+- Mono and RGB dither modes
+- Pixelate and posterize nodes
+- Live output preview
+- PNG export
+- Node insertion and reconnectable pipelines
+- Undo / redo for editor operations
+- Local workflow persistence
+- GitHub Pages deployment workflow
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## Stack
 
-## Expanding the Oxlint configuration
+- React + TypeScript
+- Vite
+- `@xyflow/react`
+- Canvas 2D image processing
+- Vitest
+- GitHub Actions + GitHub Pages
 
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
+## Local development
 
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+```bash
+npm install
+npm run dev
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+Then open the Vite URL shown in the terminal.
+
+## Verification
+
+```bash
+npm test
+npm run build
+```
+
+## Architecture
+
+The editor deliberately separates three layers:
+
+1. **Graph model** — nodes and connections are UI state.
+2. **Raster engine** — pure transformations operate on an RGBA raster buffer.
+3. **Browser shell** — upload, preview, persistence, and export.
+
+The output node recursively evaluates the connected upstream graph, so the same UI can grow into branching, masks, compositing, palette nodes, WebGL/WebGPU kernels, and reusable subgraphs without replacing the editor model.
+
+## Roadmap
+
+The next useful additions are palette extraction / locking, image masks, blend/composite nodes, edge detection, halftone screens, blue-noise dithering, reusable presets, graph import/export, history snapshots, WebGPU acceleration, and an optional WASM image-processing backend.
+
+## License
+
+MIT.
