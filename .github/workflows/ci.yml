@@ -26,3 +26,24 @@ jobs:
         run: npm ci
       - name: Quality gate
         run: npm run check
+      - name: Install browser smoke dependency
+        run: npm install --no-save --package-lock=false playwright@1.55.0
+      - name: Mask browser smoke
+        shell: bash
+        run: |
+          npm run dev -- --host 127.0.0.1 --port 5173 > /tmp/graphic-studio-vite.log 2>&1 &
+          server_pid=$!
+          trap 'kill $server_pid || true' EXIT
+          ready=0
+          for attempt in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:5173/graphic-studio/ > /dev/null; then
+              ready=1
+              break
+            fi
+            sleep 1
+          done
+          if [ "$ready" -ne 1 ]; then
+            cat /tmp/graphic-studio-vite.log
+            exit 1
+          fi
+          node scripts/smoke-mask-ui.mjs
