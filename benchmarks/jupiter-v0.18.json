@@ -1,0 +1,157 @@
+{
+  "generatedAt": "2026-09-09T17:25:41.981Z",
+  "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36 Edg/152.0.0.0",
+  "webgpu": true,
+  "cases": [
+    {
+      "label": "1080p",
+      "width": 1920,
+      "height": 1080,
+      "samples": [
+        {
+          "mode": "interactive",
+          "wallMs": 14.100000001490116,
+          "telemetry": {
+            "backend": "webgpu",
+            "durationMs": 8.100000001490116,
+            "megapixelsPerSecond": 341.33333327054,
+            "width": 1333,
+            "height": 750,
+            "stages": 4,
+            "cacheHits": 0,
+            "gpuPasses": 2
+          }
+        },
+        {
+          "mode": "quality",
+          "wallMs": 22.599999994039536,
+          "telemetry": {
+            "backend": "webgpu",
+            "durationMs": 14,
+            "megapixelsPerSecond": 197.4857142857143,
+            "width": 1920,
+            "height": 1080,
+            "stages": 4,
+            "cacheHits": 0,
+            "gpuPasses": 2
+          }
+        },
+        {
+          "mode": "export",
+          "wallMs": 272.8999999985099,
+          "telemetry": {
+            "backend": "webgpu",
+            "durationMs": 0.01,
+            "megapixelsPerSecond": 276480,
+            "width": 1920,
+            "height": 1080,
+            "stages": 4,
+            "cacheHits": 1,
+            "gpuPasses": 0
+          },
+          "outputBytes": 1560468
+        }
+      ]
+    },
+    {
+      "label": "4K",
+      "width": 3840,
+      "height": 2160,
+      "samples": [
+        {
+          "mode": "interactive",
+          "wallMs": 11.300000004470348,
+          "telemetry": {
+            "backend": "webgpu",
+            "durationMs": 6.700000002980232,
+            "megapixelsPerSecond": 412.6567162343563,
+            "width": 1333,
+            "height": 750,
+            "stages": 4,
+            "cacheHits": 0,
+            "gpuPasses": 2
+          }
+        },
+        {
+          "mode": "quality",
+          "wallMs": 92.5,
+          "telemetry": {
+            "backend": "webgpu",
+            "durationMs": 63.80000000447035,
+            "megapixelsPerSecond": 43.33542319445573,
+            "width": 3840,
+            "height": 2160,
+            "stages": 4,
+            "cacheHits": 0,
+            "gpuPasses": 2
+          }
+        },
+        {
+          "mode": "export",
+          "wallMs": 1082.5,
+          "telemetry": {
+            "backend": "webgpu",
+            "durationMs": 0.01,
+            "megapixelsPerSecond": 276480,
+            "width": 3840,
+            "height": 2160,
+            "stages": 4,
+            "cacheHits": 1,
+            "gpuPasses": 0
+          },
+          "outputBytes": 6203838
+        }
+      ]
+    },
+    {
+      "label": "8K",
+      "width": 7680,
+      "height": 4320,
+      "samples": [
+        {
+          "mode": "interactive",
+          "wallMs": 11.399999998509884,
+          "telemetry": {
+            "backend": "webgpu",
+            "durationMs": 6.899999998509884,
+            "megapixelsPerSecond": 400.6956522604469,
+            "width": 1333,
+            "height": 750,
+            "stages": 4,
+            "cacheHits": 0,
+            "gpuPasses": 2
+          }
+        },
+        {
+          "mode": "quality",
+          "wallMs": 293.30000000447035,
+          "telemetry": {
+            "backend": "webgpu",
+            "durationMs": 197.70000000298023,
+            "megapixelsPerSecond": 13.984825492960658,
+            "width": 7680,
+            "height": 4320,
+            "stages": 4,
+            "cacheHits": 0,
+            "gpuPasses": 2
+          }
+        },
+        {
+          "mode": "export",
+          "wallMs": 4367.5999999940395,
+          "telemetry": {
+            "backend": "webgpu",
+            "durationMs": 167.30000000447035,
+            "megapixelsPerSecond": 16.52600119501568,
+            "width": 7680,
+            "height": 4320,
+            "stages": 4,
+            "cacheHits": 0,
+            "gpuPasses": 2
+          },
+          "outputBytes": 24783256
+        }
+      ]
+    }
+  ]
+}

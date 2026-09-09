@@ -9,7 +9,9 @@ import {
   rasterToBlob,
   stableStageSignature,
 } from './imageEngine';
-import { maskRaster } from './mask';
+import { advancedMaskNeedsCpu, maskRaster } from './mask';
+import { GENERATOR_NODE_KINDS, generateRaster } from './generators';
+import { placeOverlay } from './overlay';
 import { MaskGpuEngine } from './maskGpuEngine';
 import type {
   EngineTelemetry,
@@ -23,6 +25,7 @@ import type {
   SourceMeta,
 } from './types';
 import { WebGpuEngine } from './webgpu';
+import type { StudioNodeData } from '../model';
 import { extractPalette } from './palette-extraction';
 import { computeScopes } from './scopes';
 
@@ -31,8 +34,9 @@ type Request =
   | { id: number; type: 'load-file'; file: File }
   | { id: number; type: 'source-preview' }
   | { id: number; type: 'extract-palette'; count: number }
-  | { id: number; type: 'render'; plan: RenderPlan }
-  | { id: number; type: 'export'; plan: RenderPlan; options: ExportOptions };
+  | { id: number; type: 'render'; plan: RenderPlan; quality?: 'interactive' | 'quality' }
+  | { id: number; type: 'export'; plan: RenderPlan; options: ExportOptions }
+  | { id: number; type: 'batch-item'; file: File; plan: RenderPlan; options: ExportOptions; maxDimension?: number };
 
 type Response =
   | { id: number; ok: true; type: 'capabilities'; webgpu: boolean }
@@ -41,6 +45,7 @@ type Response =
   | { id: number; ok: true; type: 'palette'; colors: string[] }
   | { id: number; ok: true; type: 'render'; frame: RenderedFrame }
   | { id: number; ok: true; type: 'export'; image: RenderedImage }
+  | { id: number; ok: true; type: 'batch-item'; image: RenderedImage }
   | { id: number; ok: false; error: string };
 
 const scope = self as DedicatedWorkerGlobalScope;
@@ -106,6 +111,13 @@ function stageSignature(stage: PipelineStage): string {
     d.maskBlackPoint,
     d.maskWhitePoint,
     d.maskGamma,
+    d.maskBlurRadius,
+    d.maskMorphology,
+    d.maskMorphRadius,
+    d.maskThreshold,
+    d.maskKeyColor,
+    d.maskKeyTolerance,
+    d.maskPreview,
   ]);
 }
 
@@ -157,6 +169,93 @@ async function loadFilePreview(file: File): Promise<{
   } finally {
     bitmap.close();
   }
+}
+
+function resizeRaster(source: Raster, maxPixels: number): Raster {
+  const pixels = source.width * source.height;
+  if (pixels <= maxPixels) return source;
+  const scale = Math.sqrt(maxPixels / pixels);
+  const width = Math.max(1, Math.round(source.width * scale));
+  const height = Math.max(1, Math.round(source.height * scale));
+  const canvas = new OffscreenCanvas(width, height);
+  const context = canvas.getContext('2d', { willReadFrequently: true });
+  if (!context) return source;
+  const sourceCanvas = new OffscreenCanvas(source.width, source.height);
+  const sourceContext = sourceCanvas.getContext('2d');
+  if (!sourceContext) return source;
+  sourceContext.putImageData(new ImageData(new Uint8ClampedArray(source.data), source.width, source.height), 0, 0);
+  context.imageSmoothingEnabled = true;
+  context.imageSmoothingQuality = 'medium';
+  context.drawImage(sourceCanvas, 0, 0, width, height);
+  const image = context.getImageData(0, 0, width, height);
+  return { width, height, data: new Uint8ClampedArray(image.data) };
+}
+
+function interactivePixelBudget(plan: RenderPlan): number {
+  const serial = plan.stages.some((stage) =>
+    stage.data.kind === 'dither'
+      && !isGpuCompatible(stage.data),
+  );
+  const spatial = plan.stages.some((stage) =>
+    stage.data.kind === 'convolution' || stage.data.kind === 'mask',
+  );
+  if (serial) return 520_000;
+  if (spatial || plan.stages.length >= 8) return 720_000;
+  if (plan.stages.length >= 4) return 1_000_000;
+  return 1_600_000;
+}
+function scaleInteractiveData(data: StudioNodeData, scale: number): StudioNodeData {
+  const next: StudioNodeData = { ...data };
+  const root = GENERATOR_NODE_KINDS.has(data.kind);
+  if (root) {
+    next.canvasWidth = Math.max(1, Math.round(Number(data.canvasWidth ?? 1024) * scale));
+    next.canvasHeight = Math.max(1, Math.round(Number(data.canvasHeight ?? 1024) * scale));
+    if (data.kind === 'generator') next.generatorScale = Math.max(1, Number(data.generatorScale ?? 32) * scale);
+    if (data.kind === 'text') {
+      next.fontSize = Math.max(1, Number(data.fontSize ?? 96) * scale);
+      next.letterSpacing = Number(data.letterSpacing ?? 0) * scale;
+      next.textStrokeWidth = Number(data.textStrokeWidth ?? 0) * scale;
+    }
+    if (data.kind === 'shape') {
+      next.shapeLineWidth = Math.max(0, Number(data.shapeLineWidth ?? 0) * scale);
+      next.cornerRadius = Math.max(0, Number(data.cornerRadius ?? 0) * scale);
+    }
+  }
+  if (data.kind === 'overlay') {
+    next.overlayX = Number(data.overlayX ?? 0) * scale;
+    next.overlayY = Number(data.overlayY ?? 0) * scale;
+  }
+  if (data.kind === 'mask') {
+    next.maskFeather = Math.max(0, Number(data.maskFeather ?? 0) * scale);
+    next.maskBlurRadius = Math.max(0, Number(data.maskBlurRadius ?? 0) * scale);
+    next.maskMorphRadius = Math.max(0, Number(data.maskMorphRadius ?? 0) * scale);
+    next.maskExpand = Number(data.maskExpand ?? 0) * scale;
+  }
+  if (data.kind === 'pixelate') next.pixelSize = Math.max(1, Number(data.pixelSize ?? 8) * scale);
+  if (data.kind === 'dither' && data.patternScale !== undefined) {
+    next.patternScale = Math.max(1, Number(data.patternScale) * scale);
+  }
+  return next;
+}
+
+function interactivePlan(plan: RenderPlan, maxPixels: number): RenderPlan {
+  if (!plan.graph) return plan;
+  const rootPixels = plan.graph.nodes
+    .filter((node) => GENERATOR_NODE_KINDS.has(node.data.kind))
+    .map((node) => Math.max(1, Number(node.data.canvasWidth ?? 1024))
+      * Math.max(1, Number(node.data.canvasHeight ?? 1024)));
+  const largest = rootPixels.length ? Math.max(...rootPixels) : 0;
+  if (!largest || largest <= maxPixels) return plan;
+  const scale = Math.sqrt(maxPixels / largest);
+  return {
+    ...plan,
+    signature: `${plan.signature}|interactive-scale:${scale.toFixed(6)}`,
+    stages: plan.stages.map((stage) => ({ ...stage, data: scaleInteractiveData(stage.data, scale) })),
+    graph: {
+      ...plan.graph,
+      nodes: plan.graph.nodes.map((node) => ({ ...node, data: scaleInteractiveData(node.data, scale) })),
+    },
+  };
 }
 
 function shouldUseGpu(
@@ -322,6 +421,40 @@ async function executeGraph(
       return value;
     }
 
+    if (GENERATOR_NODE_KINDS.has(node.data.kind)) {
+      const stage: PipelineStage = { id: node.id, data: node.data };
+      const token = `generator:${stageSignature(stage)}`;
+      const pixels = Math.max(1, Number(node.data.canvasWidth ?? 1024))
+        * Math.max(1, Number(node.data.canvasHeight ?? 1024));
+      const preferGpu = node.data.kind === 'generator' && gpuAvailable && !gpuDisabled && pixels >= 180_000;
+      let raster = cache.get(token);
+      if (raster) {
+        cacheHits += 1;
+        usedGpu ||= preferGpu;
+        usedCpu ||= !preferGpu;
+      } else if (preferGpu) {
+        try {
+          const rendered = await gpu.runGenerator(node.data);
+          raster = rendered.raster;
+          gpuPasses += rendered.passes;
+          usedGpu = true;
+          cache.set(token, raster);
+        } catch (error) {
+          console.warn('Graphic Studio WebGPU generator fallback:', error);
+          raster = generateRaster(node.data);
+          usedCpu = true;
+          cache.set(token, raster);
+        }
+      } else {
+        raster = generateRaster(node.data);
+        usedCpu = true;
+        cache.set(token, raster);
+      }
+      const value = { raster, token };
+      memo.set(id, value);
+      return value;
+    }
+
     const primaryInput = node.inputs.find((input) => input.port === 'base') ?? node.inputs[0];
     if (!primaryInput) throw new Error(`Render graph node ${id} has no input.`);
 
@@ -374,6 +507,49 @@ async function executeGraph(
       return value;
     }
 
+    if (node.data.kind === 'overlay') {
+      const layerInput = node.inputs.find((input) => input.port === 'overlay');
+      if (!layerInput) throw new Error(`Overlay node ${id} is missing its Overlay input.`);
+      const base = await evaluate(primaryInput.source);
+      const layer = await evaluate(layerInput.source);
+      const stage: PipelineStage = { id: node.id, data: node.data };
+      const overlayToken = `${base.token}|overlay:${stageSignature(stage)}|layer:${layer.token}`;
+      const cached = cache.get(overlayToken);
+      let raster: Raster;
+      if (cached) {
+        raster = cached;
+        cacheHits += 1;
+      } else {
+        const placed = placeOverlay(base.raster, layer.raster, node.data);
+        usedCpu = true;
+        const compositeData = {
+          ...node.data,
+          kind: 'blend' as const,
+          blendMode: node.data.overlayBlendMode ?? 'normal',
+          opacity: node.data.overlayOpacity ?? 100,
+        };
+        const preferGpu = gpuAvailable && !gpuDisabled && base.raster.width * base.raster.height >= 120_000;
+        if (preferGpu) {
+          try {
+            const rendered = await gpu.runBlend(base.raster, placed, compositeData);
+            raster = rendered.raster;
+            gpuPasses += rendered.passes;
+            usedGpu = true;
+          } catch (error) {
+            console.warn('Graphic Studio WebGPU overlay fallback:', error);
+            gpuDisabled = true;
+            raster = blendRaster(base.raster, placed, compositeData);
+          }
+        } else {
+          raster = blendRaster(base.raster, placed, compositeData);
+        }
+        cache.set(overlayToken, raster);
+      }
+      const value = { raster, token: overlayToken };
+      memo.set(id, value);
+      return value;
+    }
+
     if (node.data.kind === 'mask') {
       const maskInput = node.inputs.find((input) => input.port === 'mask');
       if (!maskInput) throw new Error(`Mask node ${id} is missing its Mask input.`);
@@ -382,7 +558,8 @@ async function executeGraph(
       const stage: PipelineStage = { id: node.id, data: node.data };
       const maskToken = `${base.token}|mask:${stageSignature(stage)}|source:${mask.token}`;
       const cached = cache.get(maskToken);
-      const preferGpu = maskGpuAvailable
+      const preferGpu = !advancedMaskNeedsCpu(node.data)
+        && maskGpuAvailable
         && !maskGpuDisabled
         && base.raster.width * base.raster.height >= 120_000;
       let raster: Raster;
@@ -426,8 +603,10 @@ async function executeGraph(
       if (!parent) throw new Error(`Render graph node ${parentId} is missing.`);
       const parentShared = (children.get(parentId)?.length ?? 0) > 1;
       const boundary = parent.data.kind === 'source'
+        || GENERATOR_NODE_KINDS.has(parent.data.kind)
         || parent.data.kind === 'blend'
         || parent.data.kind === 'mask'
+        || parent.data.kind === 'overlay'
         || parent.data.kind === 'output'
         || parent.data.enabled === false
         || parentShared;
@@ -438,6 +617,41 @@ async function executeGraph(
       cursor = parent;
     }
 
+    const baseNode = nodes.get(baseId);
+    const generatorPixels = baseNode?.data.kind === 'generator'
+      ? Math.max(1, Number(baseNode.data.canvasWidth ?? 1024))
+        * Math.max(1, Number(baseNode.data.canvasHeight ?? 1024))
+      : 0;
+    const residentGeneratorChain = baseNode?.data.kind === 'generator'
+      && gpuAvailable
+      && !gpuDisabled
+      && generatorPixels >= 180_000
+      && (children.get(baseId)?.length ?? 0) === 1
+      && chain.every((stage) => isGpuCompatible(stage.data));
+    if (residentGeneratorChain && baseNode) {
+      const generatorStage: PipelineStage = { id: baseNode.id, data: baseNode.data };
+      const token = `generator-chain:${stageSignature(generatorStage)}>${chain.map(stageSignature).join('>')}`;
+      let raster = cache.get(token);
+      if (raster) {
+        cacheHits += 1;
+      } else {
+        try {
+          const rendered = await gpu.runGeneratorChain(baseNode.data, chain);
+          raster = rendered.raster;
+          gpuPasses += rendered.passes;
+          cache.set(token, raster);
+        } catch (error) {
+          console.warn('Graphic Studio resident generator-chain fallback:', error);
+          gpuDisabled = true;
+        }
+      }
+      if (raster) {
+        usedGpu = true;
+        const value = { raster, token };
+        memo.set(id, value);
+        return value;
+      }
+    }
     const base = await evaluate(baseId);
     const terminal = (children.get(id) ?? []).includes(graph.outputId);
     const execution = await executeStages(
@@ -486,8 +700,17 @@ async function renderRaster(
   };
 }
 
-async function renderFrame(source: Raster, plan: RenderPlan): Promise<RenderedFrame> {
-  const rendered = await renderRaster(source, plan, 'preview');
+async function renderFrame(
+  source: Raster,
+  plan: RenderPlan,
+  quality: 'interactive' | 'quality' = 'quality',
+): Promise<RenderedFrame> {
+  const budget = interactivePixelBudget(plan);
+  const renderSource = quality === 'interactive'
+    ? resizeRaster(source, budget)
+    : source;
+  const renderPlan = quality === 'interactive' ? interactivePlan(plan, budget) : plan;
+  const rendered = await renderRaster(renderSource, renderPlan, `preview:${quality}`);
   return {
     bitmap: rasterToBitmap(rendered.raster),
     telemetry: rendered.telemetry,
@@ -509,11 +732,17 @@ async function renderImage(
 
 async function handle(request: Request): Promise<Response> {
   if (request.type === 'capabilities') {
+    const webgpu = !gpuDisabled && await gpu.available();
+    if (webgpu) {
+      setTimeout(() => {
+        void gpu.prewarm().catch((error) => console.warn('Graphic Studio WebGPU prewarm skipped:', error));
+      }, 0);
+    }
     return {
       id: request.id,
       ok: true,
       type: 'capabilities',
-      webgpu: !gpuDisabled && await gpu.available(),
+      webgpu,
     };
   }
 
@@ -560,7 +789,18 @@ async function handle(request: Request): Promise<Response> {
       id: request.id,
       ok: true,
       type: 'render',
-      frame: await renderFrame(previewSource, request.plan),
+      frame: await renderFrame(previewSource, request.plan, request.quality ?? 'quality'),
+    };
+  }
+
+  if (request.type === 'batch-item') {
+    const maxDimension = Math.max(256, Math.min(8192, Math.round(request.maxDimension ?? 8192)));
+    const source = await fileToRaster(request.file, maxDimension, 24_000_000);
+    return {
+      id: request.id,
+      ok: true,
+      type: 'batch-item',
+      image: await renderImage(source, request.plan, request.options),
     };
   }
 

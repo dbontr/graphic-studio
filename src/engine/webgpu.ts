@@ -1,6 +1,7 @@
 import type { BlendMode, StudioNodeData } from '../model';
 import { resolvePalette } from './imageEngine';
 import { BLUE_NOISE_32 } from './blue-noise';
+import { generatorGpuConfig, PROCEDURAL_GENERATOR_WGSL } from './generator-webgpu';
 import type { PipelineStage, Raster } from './types';
 
 type GpuPass =
@@ -486,6 +487,20 @@ export class WebGpuEngine {
     return Boolean(await this.getDevice());
   }
 
+  async prewarm(): Promise<void> {
+    const device = await this.getDevice();
+    if (!device) return;
+    const warmStages: PipelineStage[] = [
+      { id: 'warm-adjust', data: { kind: 'adjust', label: 'Warm adjust' } },
+      { id: 'warm-posterize', data: { kind: 'posterize', label: 'Warm posterize' } },
+      { id: 'warm-pixelate', data: { kind: 'pixelate', label: 'Warm pixelate' } },
+      { id: 'warm-convolution', data: { kind: 'convolution', label: 'Warm convolution', convolution: 'sharpen' } },
+    ];
+    const passes = partitionPasses(warmStages).map(compilePass);
+    await Promise.all(passes.map((pass) => this.getPipeline(device, pass)));
+    await this.getPipeline(device, { key: 'procedural-generator-v1', shader: PROCEDURAL_GENERATOR_WGSL, params: new Float32Array(0) });
+  }
+
   private async getDevice(): Promise<GPUDevice | null> {
     if (this.device) return this.device;
     if (this.initialization) return this.initialization;
@@ -550,6 +565,103 @@ export class WebGpuEngine {
     })();
     this.pipelineCache.set(compiled.key, pipeline);
     return pipeline;
+  }
+
+  async runGenerator(node: StudioNodeData): Promise<{ raster: Raster; passes: number }> {
+    return this.runGeneratorChain(node, []);
+  }
+
+  async runGeneratorChain(
+    node: StudioNodeData,
+    stages: PipelineStage[],
+  ): Promise<{ raster: Raster; passes: number }> {
+    const device = await this.getDevice();
+    if (!device) throw new Error('WebGPU is unavailable.');
+    const config = generatorGpuConfig(node);
+    const byteLength = config.width * config.height * 4;
+    this.ensureBuffers(device, byteLength);
+    const bufferA = this.bufferA!;
+    const bufferB = this.bufferB!;
+    const readback = this.readback!;
+
+    const generatorMeta = device.createBuffer({
+      size: 16,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+    const generatorParams = device.createBuffer({
+      size: 48,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+    device.queue.writeBuffer(generatorMeta, 0, config.meta);
+    device.queue.writeBuffer(generatorParams, 0, config.params);
+
+    const generatorPipeline = await this.getPipeline(device, {
+      key: 'procedural-generator-v1',
+      shader: PROCEDURAL_GENERATOR_WGSL,
+      params: config.params,
+    });
+    const passes = partitionPasses(stages).map(compilePass);
+    const pipelines = await Promise.all(passes.map((pass) => this.getPipeline(device, pass)));
+    const encoder = device.createCommandEncoder({ label: 'Graphic Studio generator chain' });
+    const generatorGroup = device.createBindGroup({
+      layout: generatorPipeline.getBindGroupLayout(0),
+      entries: [
+        { binding: 0, resource: { buffer: bufferA } },
+        { binding: 1, resource: { buffer: generatorMeta } },
+        { binding: 2, resource: { buffer: generatorParams } },
+      ],
+    });
+    const generatorPass = encoder.beginComputePass({ label: 'Procedural generator' });
+    generatorPass.setPipeline(generatorPipeline);
+    generatorPass.setBindGroup(0, generatorGroup);
+    generatorPass.dispatchWorkgroups(Math.ceil(config.width / 8), Math.ceil(config.height / 8));
+    generatorPass.end();
+
+    let readBuffer = bufferA;
+    let writeBuffer = bufferB;
+    const parameterBuffers: GPUBuffer[] = [];
+    for (let index = 0; index < passes.length; index += 1) {
+      const compiled = passes[index];
+      const pipeline = pipelines[index];
+      const parameterBuffer = device.createBuffer({
+        size: Math.max(16, Math.ceil(compiled.params.byteLength / 16) * 16),
+        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+      });
+      parameterBuffers.push(parameterBuffer);
+      device.queue.writeBuffer(parameterBuffer, 0, compiled.params);
+      const bindGroup = device.createBindGroup({
+        layout: pipeline.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: { buffer: readBuffer } },
+          { binding: 1, resource: { buffer: writeBuffer } },
+          { binding: 2, resource: { buffer: generatorMeta } },
+          { binding: 3, resource: { buffer: parameterBuffer } },
+        ],
+      });
+      const compute = encoder.beginComputePass({ label: `Generator chain ${index + 1}` });
+      compute.setPipeline(pipeline);
+      compute.setBindGroup(0, bindGroup);
+      compute.dispatchWorkgroups(Math.ceil(config.width / 8), Math.ceil(config.height / 8));
+      compute.end();
+      const previous = readBuffer;
+      readBuffer = writeBuffer;
+      writeBuffer = previous;
+    }
+
+    encoder.copyBufferToBuffer(readBuffer, 0, readback, 0, byteLength);
+    device.queue.submit([encoder.finish()]);
+    await readback.mapAsync(GPUMapMode.READ, 0, byteLength);
+    const mapped = new Uint8Array(readback.getMappedRange(0, byteLength));
+    const data = new Uint8ClampedArray(byteLength);
+    data.set(mapped);
+    readback.unmap();
+    generatorMeta.destroy();
+    generatorParams.destroy();
+    parameterBuffers.forEach((buffer) => buffer.destroy());
+    return {
+      raster: { width: config.width, height: config.height, data },
+      passes: 1 + passes.length,
+    };
   }
 
   async runBlend(

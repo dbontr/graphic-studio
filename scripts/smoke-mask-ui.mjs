@@ -30,6 +30,8 @@ try {
     const { applyEffectCpu, makeDemoRaster } = await import('/graphic-studio/src/engine/imageEngine.ts');
     const { maskRaster } = await import('/graphic-studio/src/engine/mask.ts');
     const { MaskGpuEngine } = await import('/graphic-studio/src/engine/maskGpuEngine.ts');
+    const { generateRaster } = await import('/graphic-studio/src/engine/generators.ts');
+    const { WebGpuEngine } = await import('/graphic-studio/src/engine/webgpu.ts');
 
     const source = { id: 'source', type: 'studio', position: { x: 0, y: 0 }, data: { kind: 'source', label: 'Source' } };
     const maskSource = {
@@ -89,6 +91,59 @@ try {
         directMaskCompared += 1;
       }
 
+      const advancedMaskData = {
+        ...mask.data,
+        maskInvert: false,
+        maskStrength: 88,
+        maskFeather: 3,
+        maskBlurRadius: 7,
+        maskMorphology: 'close',
+        maskMorphRadius: 2,
+        maskExpand: -1,
+        maskThreshold: 38,
+        maskCurve: [0, 42, 116, 214, 255],
+      };
+      const advancedExpected = maskRaster(baseRaster, maskRasterSource, advancedMaskData);
+      const advancedGpu = new MaskGpuEngine();
+      const advancedResult = await advancedGpu.run(baseRaster, maskRasterSource, advancedMaskData);
+      let advancedMaxDifference = 0;
+      for (let offset = 0; offset < advancedExpected.data.length; offset += 1) {
+        advancedMaxDifference = Math.max(
+          advancedMaxDifference,
+          Math.abs(advancedExpected.data[offset] - advancedResult.raster.data[offset]),
+        );
+      }
+
+      const generatorData = {
+        kind: 'generator', label: 'GPU checker', canvasWidth: 640, canvasHeight: 480,
+        generatorType: 'checkerboard', generatorColorA: '#112233', generatorColorB: '#eeddcc',
+        generatorScale: 23, generatorSeed: 17, generatorIntensity: 100,
+      };
+      const generatorExpected = generateRaster(generatorData);
+      const generatorGpu = new WebGpuEngine();
+      const generatorResult = await generatorGpu.runGenerator(generatorData);
+      let generatorMaxDifference = 0;
+      for (let offset = 0; offset < generatorExpected.data.length; offset += 1) {
+        generatorMaxDifference = Math.max(
+          generatorMaxDifference,
+          Math.abs(generatorExpected.data[offset] - generatorResult.raster.data[offset]),
+        );
+      }
+      const generatorStages = [
+        { id: 'grade', data: { kind: 'adjust', label: 'Grade', exposure: 0.2, contrast: 12, saturation: 108, gamma: 0.94 } },
+        { id: 'posterize', data: { kind: 'posterize', label: 'Posterize', levels: 9 } },
+        { id: 'ordered', data: { kind: 'dither', label: 'Ordered', algorithm: 'bayer-8', threshold: 128, monochrome: false } },
+      ];
+      let generatorChainExpected = generatorExpected;
+      for (const stage of generatorStages) generatorChainExpected = applyEffectCpu(generatorChainExpected, stage.data);
+      const generatorChainResult = await generatorGpu.runGeneratorChain(generatorData, generatorStages);
+      let generatorChainMaxDifference = 0;
+      for (let offset = 0; offset < generatorChainExpected.data.length; offset += 1) {
+        generatorChainMaxDifference = Math.max(
+          generatorChainMaxDifference,
+          Math.abs(generatorChainExpected.data[offset] - generatorChainResult.raster.data[offset]),
+        );
+      }
       let maxDifference = 0;
       let compared = 0;
       for (let pixel = 0; pixel < expected.width * expected.height; pixel += 997) {
@@ -110,6 +165,12 @@ try {
         directMaskMaxDifference,
         directMaskCompared,
         directMaskPasses: directMaskResult.passes,
+        advancedMaskMaxDifference: advancedMaxDifference,
+        advancedMaskPasses: advancedResult.passes,
+        generatorMaxDifference,
+        generatorPasses: generatorResult.passes,
+        generatorChainMaxDifference,
+        generatorChainPasses: generatorChainResult.passes,
         graphNodes: plan.graph?.nodes.length ?? 0,
       };
     } finally {
@@ -126,6 +187,9 @@ try {
     channels: await maskNode.locator('select option').count(),
     strengthControls: await maskNode.locator('input[type="range"]').count(),
     inputLabels: (await maskNode.locator('.blend-input-key').innerText()).replace(/\s+/g, ' ').trim(),
+    advancedControls: /Gaussian blur/.test(await maskNode.innerText())
+      && /Expand \/ contract/.test(await maskNode.innerText())
+      && /Mask curve/i.test(await maskNode.innerText()),
   };
 
   const outputNode = page.locator('.studio-node--output').first();
@@ -157,13 +221,21 @@ try {
   if (engine.directMaskMaxDifference !== 0) {
     throw new Error(`Direct mask CPU/GPU parity failed: ${engine.directMaskMaxDifference}`);
   }
+  if (engine.advancedMaskMaxDifference !== 0 || engine.advancedMaskPasses < 4) {
+    throw new Error(`Advanced mask GPU parity failed: ${JSON.stringify(engine)}`);
+  }
+  if (engine.generatorChainMaxDifference > 2 || engine.generatorChainPasses !== 2) {
+    throw new Error(`Resident generator-chain parity failed: ${JSON.stringify(engine)}`);
+  }  if (engine.generatorMaxDifference !== 0 || engine.generatorPasses !== 1) {
+    throw new Error(`Generator GPU parity failed: ${JSON.stringify(engine)}`);
+  }
   if (engine.directMaskPasses !== 2 || engine.gpuPasses < 2) {
     throw new Error(`Expected two-pass GPU feathering: ${JSON.stringify(engine)}`);
   }
   // The full graph includes an upstream floating-point Adjust node whose CPU/WebGPU
   // implementations are independently allowed a small byte-level rounding delta.
   if (engine.maxDifference > 2) throw new Error(`Mask graph parity failed: ${engine.maxDifference}`);
-  if (ui.nodes !== 1 || ui.handles !== 2 || ui.channels !== 5 || ui.strengthControls !== 5) {
+  if (ui.nodes !== 1 || ui.handles !== 2 || ui.channels < 5 || ui.strengthControls < 9 || !ui.advancedControls) {
     throw new Error(`Mask UI smoke failed: ${JSON.stringify(ui)}`);
   }
   if (!comparison.sourceReady || comparison.modes !== 3 || comparison.canvases !== 2

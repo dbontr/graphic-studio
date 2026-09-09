@@ -2,7 +2,7 @@
 
 Graphic Studio is a high-performance, node-based image processing studio that runs entirely in the browser and deploys as a static GitHub Pages application.
 
-It started as a Dither Boy-style experiment and is evolving into a broader local-first graphics workbench for dithering, pixel-art workflows, palette processing, color grading, compositing, masking, convolution effects, and reusable image pipelines.
+It started as a Dither Boy-style experiment and is now a broader local-first graphics workbench for reusable node workflows, raster authoring, procedural graphics, dithering, palette processing, color grading, compositing, masking, batch production, and high-resolution export.
 
 **Live:** https://dbontr.github.io/graphic-studio/
 
@@ -32,7 +32,11 @@ No uploaded image needs to leave the device.
 - Node bypass / enable controls
 - Undo / redo with drag and slider coalescing
 - Keyboard shortcuts for undo, redo, save, and render
-- Workflow JSON import / export with backward-compatible local persistence
+- Workflow JSON import / export with bounded schema validation and backward-compatible local persistence
+- Searchable node palette plus multi-select duplicate, copy/paste, align, distribute, and per-node reset controls
+- Reusable subgraphs with exposed parameters, nested deterministic expansion, and an inline internal-graph inspector
+- Built-in and user preset library with selection capture, local persistence, search, import/export, and portable JSON manifests
+- Batch queue for up to 500 images with PNG/JPEG/WebP output, resolution caps, filename templates, retry/cancel, collision-safe names, progress, and ZIP download
 - Last source image persistence in IndexedDB
 - Runtime performance panel with backend, compute time, throughput, cache hits, GPU pass counts, and live histogram / waveform / vectorscope analysis
 
@@ -41,14 +45,19 @@ No uploaded image needs to leave the device.
 - Color + tone: exposure, brightness, contrast, saturation, gamma, temperature, tint
 - Curves: interactive five-anchor Master, Red, Green, and Blue tone curves with exact CPU/WebGPU parity
 - Blend: true two-input branch compositing with 12 blend modes, opacity, alpha compositing, and normalized branch geometry
-- Mask: true two-input alpha masking from luminance, alpha, red, green, or blue; black/white point and gamma shaping; 0–64 px spatial feathering; invert and 0–100% strength; normalized branch geometry
-- Transform: crop edges, 90° rotation, horizontal/vertical flip, 10–200% resize, nearest or bilinear resampling
+- Mask: true two-input alpha masking with luminance/R/G/B/alpha channels, levels, gamma, five-point mask curves, Gaussian-style blur, dilate/erode/open/close morphology, signed expand/contract, thresholding, color-key selection, feather, inversion, strength, and mask/overlay diagnostic previews
+- Overlay: positioned two-input compositing with translation, scale, rotation, configurable anchor, opacity, and all 12 blend modes
+- Text: multiline transparent typography sources with font family, size, weight, tracking, line height, alignment, fill, stroke, and opacity
+- Shape: rectangle, rounded rectangle, ellipse, line, triangle, and polygon sources with fill/stroke controls
+- Gradient: editable multi-stop linear/radial sources with angle, center, and radius controls
+- Generator: solid, checkerboard, grid, deterministic noise, fractal noise, scanlines, stripes, dot matrix, tile, Voronoi, and CRT-style procedural sources
+- Transform: crop edges, 90-degree rotation, horizontal/vertical flip, 10-200% resize, nearest or bilinear resampling
 - Pixelate
 - Posterize
 - Palette mapping: Game Boy, PICO-8, CGA, monochrome, grayscale, editable custom palettes, source palette extraction
 - Convolution: blur, sharpen, edge detection, emboss, adjustable strength
-- Dither: 25 modes spanning 14 error-diffusion kernels, Bayer matrices, a progressive 32×32 blue-noise threshold map, clustered-dot screens, procedural dot/line/crosshatch screens, CMYK halftone, threshold, and deterministic noise
-- Error-diffusion controls: serpentine or raster scan plus 0–160% error strength
+- Dither: 25 modes spanning 14 error-diffusion kernels, Bayer matrices, a progressive 32x32 blue-noise threshold map, clustered-dot screens, procedural dot/line/crosshatch screens, CMYK halftone, threshold, and deterministic noise
+- Error-diffusion controls: serpentine or raster scan plus 0-160% error strength
 - Pattern controls: screen size and angle with GPU acceleration where applicable
 
 ## Render engine
@@ -62,24 +71,25 @@ The backend currently accelerates:
 - Color / tone adjustment
 - Master/RGB tone curves
 - Two-input blend compositing across 12 blend modes
-- Two-input channel/luminance alpha masking
+- Two-input masking, including exact feathering plus GPU blur/morphology/expand/threshold field passes
 - Posterization
 - Palette mapping
 - Pixelation
-- 3×3 convolution
+- 3x3 convolution
 - Bayer, progressive blue-noise, and clustered-dot ordered dithering
 - Procedural halftone dots, line screens, and crosshatch
 - Four-screen CMYK halftone at standard C/M/Y/K angles
 - Threshold dithering
 - Noise dithering
+- Procedural generator roots, including deterministic pattern/noise/Voronoi/CRT families
 
-GPU buffers are reused between renders, compute pipelines are cached, compatible stages are fused, and a ping-pong storage-buffer design avoids intermediate CPU readbacks.
+GPU buffers are pooled and reused between renders, compute pipelines are cached and prewarmed, compatible point stages are shader-fused, and ping-pong storage buffers avoid unnecessary intermediate readbacks. Procedural generator roots can remain GPU-resident through a compatible unary chain and read back only the final raster.
 
 ### Branching graph execution
 
-The compiler preserves the fast linear plan for ordinary pipelines and emits a dependency DAG only when a live multi-input node requires it. Blend and Mask ports are explicit in workflow edges, branch results are memoized, shared ancestors are evaluated once, and compatible unary chains remain fused between branch boundaries.
+The compiler preserves the fast linear plan for ordinary pipelines and emits a dependency DAG only when a live multi-input node requires it. Blend, Mask, and Overlay ports are explicit in workflow edges, branch results are memoized, shared ancestors are evaluated once, and compatible unary chains remain fused between branch boundaries. Reusable subgraphs expand deterministically into the same graph IR with bounded nesting and exposed-parameter overrides.
 
-Blend execution uses a dedicated two-input WebGPU kernel on larger canvases with a deterministic CPU-worker fallback. Masking compiles black/white point, gamma, inversion, and strength into a 256-entry byte LUT shared by CPU and WebGPU. Optional feathering is applied to the normalized mask channel before the LUT using an edge-clamped separable integer box filter. The CPU implementation uses O(N) sliding windows, while the GPU uses a horizontal scalar pass followed by a vertical composite pass; unfeathered masks retain the original single-pass path. Integer channel extraction, fixed-point Rec.709 luminance, geometry mapping, blur rounding, LUT lookup, and alpha composition use matching byte semantics across both backends. When WebGPU is unavailable or not worth the round trip, the worker uses the same deterministic path on the CPU.
+Blend execution uses a dedicated two-input WebGPU kernel on larger canvases with a deterministic CPU-worker fallback. Masking builds one normalized scalar mask field, then applies optional Gaussian-style blur, morphology, signed expansion/contraction, thresholding, feathering, levels/gamma/five-point-curve LUT shaping, inversion, and strength before alpha composition. The CPU uses O(N) sliding windows and deque morphology; the WebGPU path keeps the mask field on pooled storage buffers across horizontal/vertical passes and performs one final readback. Simple feathering retains the exact v0.11 byte path. Integer channel extraction, fixed-point Rec.709 luminance, geometry mapping, filter rounding, LUT lookup, and alpha composition use matching byte semantics; browser parity tests require zero byte difference for both simple and advanced GPU masks. Color-key selection and diagnostic mask/overlay previews intentionally remain on the CPU worker.
 
 ### CPU-worker path
 
@@ -91,8 +101,21 @@ The engine uses an adaptive hybrid policy: a GPU round trip is avoided for tiny 
 
 A source-revision + stage-signature cache stores reusable intermediate rasters with a bounded memory budget. Multi-input cache keys include branch identity and semantic controls, so changing mask channel, inversion, strength, blend mode, or opacity invalidates only the answer-relevant downstream work. Moving nodes does not rerender the image because layout coordinates are not part of the semantic render plan. During rapid slider edits, the main thread debounces changes while the render client keeps at most one active render and one newest queued render.
 
+Interactive rendering is resolution-adaptive: graph complexity selects a pixel budget, image sources are downsampled for the immediate frame, and generated roots receive a proportionally scaled render plan so text, shapes, masks, patterns, overlays, and pixel effects retain their visual scale. An idle quality pass follows after editing settles. This keeps the 4K/8K editing path close to the same interaction cost while export preserves the requested source resolution.
+
 Preview decoding is capped for interactivity, while export re-decodes the original source at a much higher resolution budget. The worker exposes a zero-copy source-preview snapshot alongside processed frames so the Output node can switch between Result, Original, and draggable Split comparison modes without rerunning the graph. Source and live frames are transferred as `ImageBitmap` objects and drawn directly to preview canvases, so interactive rendering pays no image-encoding or Blob-URL churn. A single bounded worker-side analysis pass builds the RGB/luminance histogram, 128×64 luminance waveform, and 96×96 Cb/Cr vectorscope with at most 250,000 samples, avoiding any main-thread pixel readback. PNG, JPEG, or WebP encoding only happens on explicit export; JPEG exports flatten alpha against the selected matte while PNG and WebP preserve transparency. This keeps editing responsive without permanently throwing away source resolution.
 
+## Performance benchmark
+
+`npm run benchmark:browser` executes a real Edge/Chrome WebGPU workload at 1080p, 4K, and 8K and writes a machine-readable report under `benchmarks/`. The v0.18 Jupiter reference run uses a procedural generator plus a fused adjustment/posterize/Bayer chain.
+
+| Resolution | Interactive wall | Quality wall | WebGPU compute | Export wall |
+| --- | ---: | ---: | ---: | ---: |
+| 1080p | 14.1 ms | 22.6 ms | 14.0 ms | 272.9 ms |
+| 4K | 11.3 ms | 92.5 ms | 63.8 ms | 1.08 s |
+| 8K | 11.4 ms | 293.3 ms | 197.7 ms | 4.37 s |
+
+Interactive 4K/8K stays near 11 ms because the immediate pass is resolution-adaptive (1333x750 in this workload), followed by the full-quality idle render. Full 8K rendering and WebP export complete without leaving the browser.
 ## Stack
 
 - React 19 + TypeScript
@@ -103,6 +126,8 @@ Preview decoding is capped for interactivity, while export re-decodes the origin
 - OffscreenCanvas + ImageBitmap
 - IndexedDB for local source persistence
 - Vitest
+- Playwright browser regression + WebGPU parity tests
+- fflate for local ZIP batch export
 - GitHub Actions + GitHub Pages
 
 ## Development
@@ -118,13 +143,19 @@ Run the complete quality gate with:
 npm run check
 ```
 
-That command runs linting, the engine test suite, TypeScript, and the production Vite build. Pull requests run the same gate in GitHub Actions before release.
+Run browser/WebGPU regression suites and the benchmark harness with:
+
+```bash
+npm run smoke:browser
+npm run smoke:v18
+npm run benchmark:browser
+```
+
+`npm run check` runs linting, the full engine/unit suite, TypeScript, and the production Vite build. The browser suites exercise real WebGPU kernels, editor workflows, subgraphs/presets, batch ZIP production, authoring nodes, and comparison controls.
 
 ## Direction
 
-The render foundation is intentionally larger than a dithering clone. Planned higher-level capabilities include reusable subgraphs, presets, batch and vector export, vector/text overlays, advanced mask blur/morphology, and additional GPU kernels.
-
-The goal is to keep those features on the same local-first architecture rather than growing a server dependency.
+v0.18 completes the v0.13-v0.18 roadmap: reusable workflow packaging, raster authoring primitives, advanced masking, batch production, procedural generators, and the deep performance pass all live on the same local-first runtime. Future work can concentrate on deeper vector editing, richer typography/font loading, additional GPU-resident multi-input chains, and further UX polish rather than filling foundational gaps.
 
 ## Browser behavior
 

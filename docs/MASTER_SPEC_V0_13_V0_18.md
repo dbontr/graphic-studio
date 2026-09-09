@@ -163,3 +163,16 @@ Release readiness requires:
 ## Delivery structure
 
 Implementation uses logically separated commits for v0.13 through v0.18 on one isolated feature train. The final PR may merge the train only after the complete gate is green. Version advances to 0.18.0 when all listed capabilities are present; intermediate commits remain independently bisectable.
+
+## Implementation completion record
+
+Implementation target: `0.18.0`.
+
+- v0.13: subgraphs, exposed controls, nested expansion, built-in/user presets, import/export, and preset validation implemented.
+- v0.14: text, six shape families, editable gradients, positioned overlays, anchors, and source abstractions implemented.
+- v0.15: advanced mask curves, blur, morphology, signed expansion/contraction, threshold/key selection, previews, and pooled WebGPU field kernels implemented.
+- v0.16: bounded batch queue, format/resolution controls, retry/cancel, filename templates, progress, and collision-safe ZIP output implemented.
+- v0.17: eleven deterministic procedural generator families implemented with CPU fallback and WebGPU acceleration.
+- v0.18: shader prewarm, adaptive two-stage preview, semantic caching, pooled buffers, fused point shaders, GPU-resident generated chains, benchmark tooling, and browser parity coverage implemented.
+
+Release gates require zero lint warnings/errors, the full unit suite, TypeScript and production build success, zero npm audit vulnerabilities, both browser smoke suites, recorded 1080p/4K/8K WebGPU benchmarks, successful GitHub Pages deployment, and a production smoke before the roadmap is considered shipped.

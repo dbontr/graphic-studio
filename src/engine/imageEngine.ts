@@ -134,6 +134,14 @@ export function stableStageSignature(stage: PipelineStage): string {
     d.diffusionStrength,
     d.patternScale,
     d.angle,
+    d.overlayX, d.overlayY, d.overlayScale, d.overlayRotation, d.overlayAnchorX, d.overlayAnchorY, d.overlayOpacity, d.overlayBlendMode,
+    d.canvasWidth, d.canvasHeight, d.textContent, d.fontFamily, d.fontSize, d.fontWeight,
+    d.letterSpacing, d.lineHeight, d.textAlign, d.fillColor, d.strokeColor, d.strokeWidth, d.textOpacity,
+    d.shapeType, d.cornerRadius, d.shapeLineWidth, d.polygonSides,
+    d.gradientType, d.gradientStops, d.gradientAngle, d.gradientCenterX, d.gradientCenterY, d.gradientRadius,
+    d.generatorType, d.generatorColorA, d.generatorColorB, d.generatorScale, d.generatorSeed, d.generatorOctaves, d.generatorIntensity,
+    d.maskBlurRadius, d.maskMorphology, d.maskMorphRadius, d.maskExpand, d.maskThreshold, d.maskCurve, d.maskKeyColor, d.maskKeyTolerance, d.maskPreview,
+    d.subgraphValues, d.subgraph,
   ]);
 }
 

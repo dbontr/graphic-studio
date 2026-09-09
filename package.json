@@ -1,7 +1,7 @@
 {
   "name": "graphic-studio",
   "private": true,
-  "version": "0.12.0",
+  "version": "0.18.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -9,10 +9,14 @@
     "lint": "oxlint",
     "preview": "vite preview",
     "test": "vitest run",
-    "check": "npm run lint && npm test && npm run build"
+    "check": "npm run lint && npm test && npm run build",
+    "smoke:browser": "node scripts/smoke-mask-ui.mjs",
+    "benchmark:browser": "node scripts/benchmark-browser.mjs",
+    "smoke:v18": "node scripts/smoke-v18.mjs"
   },
   "dependencies": {
     "@xyflow/react": "^12.11.6",
+    "fflate": "^0.8.3",
     "lucide-react": "^1.43.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"
@@ -24,6 +28,7 @@
     "@vitejs/plugin-react": "^6.1.0",
     "@webgpu/types": "^0.1.72",
     "oxlint": "^1.79.0",
+    "playwright": "^1.55.1",
     "typescript": "~6.0.2",
     "vite": "^8.2.2",
     "vitest": "^5.0.0"

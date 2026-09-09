@@ -6,6 +6,7 @@ import {
   maskChannelValue,
   maskRaster,
   shapeMaskValue,
+  advancedMaskNeedsCpu,
 } from './mask';
 import type { Raster } from './types';
 
@@ -133,10 +134,87 @@ describe('mask compositor', () => {
     expect(output.data[3]).toBeGreaterThanOrEqual(198);
   });
 
+  it('expands and contracts mask support independently of morphology mode', () => {
+    const base = raster(5, 1, Array.from({ length: 5 }, () => [1, 2, 3, 255]).flat());
+    const source = raster(5, 1, [
+      0, 0, 0, 255,
+      0, 0, 0, 255,
+      255, 255, 255, 255,
+      0, 0, 0, 255,
+      0, 0, 0, 255,
+    ]);
+    const expanded = maskRaster(base, source, { ...defaults, maskExpand: 1 });
+    expect([3, 7, 11, 15, 19].map((index) => expanded.data[index])).toEqual([0, 255, 255, 255, 0]);
+    const contracted = maskRaster(base, source, { ...defaults, maskExpand: -1 });
+    expect([3, 7, 11, 15, 19].map((index) => contracted.data[index])).toEqual([0, 0, 0, 0, 0]);
+  });
+
+  it('applies the dedicated five-point mask curve inside the byte LUT', () => {
+    const lut = buildMaskLut({ ...defaults, maskCurve: [0, 32, 64, 192, 255] });
+    expect(lut[64]).toBe(32);
+    expect(lut[128]).toBe(64);
+    expect(lut[192]).toBe(192);
+  });
   it('uses the selected alpha channel independently of mask RGB', () => {
     const base = raster(1, 1, [20, 30, 40, 200]);
     const mask = raster(1, 1, [255, 255, 255, 64]);
     const output = maskRaster(base, mask, { ...defaults, maskChannel: 'alpha' });
     expect(output.data[3]).toBe(50);
+  });
+
+  it('dilates and erodes scalar masks with bounded morphology', () => {
+    const base = raster(5, 1, Array.from({ length: 5 }, () => [10, 20, 30, 255]).flat());
+    const isolated = raster(5, 1, [
+      0, 0, 0, 255,
+      0, 0, 0, 255,
+      255, 255, 255, 255,
+      0, 0, 0, 255,
+      0, 0, 0, 255,
+    ]);
+    const dilated = maskRaster(base, isolated, { ...defaults, maskMorphology: 'dilate', maskMorphRadius: 1 });
+    expect([3, 7, 11, 15, 19].map((index) => dilated.data[index])).toEqual([0, 255, 255, 255, 0]);
+
+    const band = raster(5, 1, [
+      0, 0, 0, 255,
+      255, 255, 255, 255,
+      255, 255, 255, 255,
+      255, 255, 255, 255,
+      0, 0, 0, 255,
+    ]);
+    const eroded = maskRaster(base, band, { ...defaults, maskMorphology: 'erode', maskMorphRadius: 1 });
+    expect([3, 7, 11, 15, 19].map((index) => eroded.data[index])).toEqual([0, 0, 255, 0, 0]);
+  });
+
+  it('applies Gaussian-style softening before mask shaping', () => {
+    const base = raster(5, 1, Array.from({ length: 5 }, () => [1, 2, 3, 255]).flat());
+    const mask = raster(5, 1, [0, 0, 0, 255, 0, 0, 0, 255, 255, 255, 255, 255, 0, 0, 0, 255, 0, 0, 0, 255]);
+    const output = maskRaster(base, mask, { ...defaults, maskBlurRadius: 2 });
+    const alpha = [3, 7, 11, 15, 19].map((index) => output.data[index]);
+    expect(alpha[2]).toBeGreaterThan(alpha[0]);
+    expect(alpha[1]).toBeGreaterThan(0);
+    expect(alpha[2]).toBeLessThan(255);
+  });
+
+  it('supports threshold, keyed color selection, and diagnostic mask preview', () => {
+    const base = raster(2, 1, [20, 40, 60, 180, 80, 100, 120, 200]);
+    const mask = raster(2, 1, [255, 255, 255, 255, 0, 0, 0, 255]);
+    const keyed = maskRaster(base, mask, {
+      ...defaults,
+      maskKeyColor: '#ffffff',
+      maskKeyTolerance: 50,
+      maskThreshold: 50,
+      maskPreview: 'mask',
+    });
+    expect(Array.from(keyed.data)).toEqual([255, 255, 255, 255, 0, 0, 0, 255]);
+  });
+
+  it('keeps GPU-capable advanced masks on GPU and reserves CPU for keying/diagnostic previews', () => {
+    expect(advancedMaskNeedsCpu(defaults)).toBe(false);
+    expect(advancedMaskNeedsCpu({ ...defaults, maskBlurRadius: 8 })).toBe(false);
+    expect(advancedMaskNeedsCpu({ ...defaults, maskMorphology: 'dilate', maskMorphRadius: 3 })).toBe(false);
+    expect(advancedMaskNeedsCpu({ ...defaults, maskExpand: -2 })).toBe(false);
+    expect(advancedMaskNeedsCpu({ ...defaults, maskThreshold: 50 })).toBe(false);
+    expect(advancedMaskNeedsCpu({ ...defaults, maskKeyTolerance: 15 })).toBe(true);
+    expect(advancedMaskNeedsCpu({ ...defaults, maskPreview: 'mask' })).toBe(true);
   });
 });
