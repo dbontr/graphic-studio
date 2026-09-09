@@ -3,8 +3,9 @@ import { chromium } from 'playwright';
 const url = process.env.GRAPHIC_STUDIO_SMOKE_URL
   ?? 'http://127.0.0.1:5173/graphic-studio/';
 
+const browserChannel = process.env.GRAPHIC_STUDIO_BROWSER_CHANNEL ?? 'chrome';
 const browser = await chromium.launch({
-  channel: 'chrome',
+  channel: browserChannel,
   headless: true,
   args: ['--enable-unsafe-webgpu'],
 });
@@ -46,7 +47,7 @@ try {
       position: { x: 0, y: 0 },
       data: {
         kind: 'mask', label: 'Mask', maskChannel: 'red',
-        maskInvert: true, maskStrength: 73,
+        maskInvert: true, maskStrength: 73, maskFeather: 9,
         maskBlackPoint: 18, maskWhitePoint: 82, maskGamma: 1.6,
       },
     };
@@ -76,7 +77,8 @@ try {
       // Isolate the mask compositor itself from upstream Adjust-node GPU/CPU drift.
       // This direct test must be byte-exact across the entire raster.
       const directMaskGpu = new MaskGpuEngine();
-      const directMask = await directMaskGpu.run(baseRaster, maskRasterSource, mask.data);
+      const directMaskResult = await directMaskGpu.run(baseRaster, maskRasterSource, mask.data);
+      const directMask = directMaskResult.raster;
       let directMaskMaxDifference = 0;
       let directMaskCompared = 0;
       for (let offset = 0; offset < expected.data.length; offset += 1) {
@@ -107,6 +109,7 @@ try {
         compared,
         directMaskMaxDifference,
         directMaskCompared,
+        directMaskPasses: directMaskResult.passes,
         graphNodes: plan.graph?.nodes.length ?? 0,
       };
     } finally {
@@ -133,10 +136,13 @@ try {
   if (engine.directMaskMaxDifference !== 0) {
     throw new Error(`Direct mask CPU/GPU parity failed: ${engine.directMaskMaxDifference}`);
   }
+  if (engine.directMaskPasses !== 2 || engine.gpuPasses < 2) {
+    throw new Error(`Expected two-pass GPU feathering: ${JSON.stringify(engine)}`);
+  }
   // The full graph includes an upstream floating-point Adjust node whose CPU/WebGPU
   // implementations are independently allowed a small byte-level rounding delta.
   if (engine.maxDifference > 2) throw new Error(`Mask graph parity failed: ${engine.maxDifference}`);
-  if (ui.nodes !== 1 || ui.handles !== 2 || ui.channels !== 5 || ui.strengthControls !== 4) {
+  if (ui.nodes !== 1 || ui.handles !== 2 || ui.channels !== 5 || ui.strengthControls !== 5) {
     throw new Error(`Mask UI smoke failed: ${JSON.stringify(ui)}`);
   }
   if (problems.length) throw new Error(`Browser problems: ${JSON.stringify(problems)}`);

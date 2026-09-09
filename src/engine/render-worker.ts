@@ -100,6 +100,7 @@ function stageSignature(stage: PipelineStage): string {
     d.maskChannel,
     d.maskInvert,
     d.maskStrength,
+    d.maskFeather,
     d.maskBlackPoint,
     d.maskWhitePoint,
     d.maskGamma,
@@ -390,8 +391,9 @@ async function executeGraph(
         usedCpu ||= !preferGpu;
       } else if (preferGpu) {
         try {
-          raster = await maskGpu.run(base.raster, mask.raster, node.data);
-          gpuPasses += 1;
+          const rendered = await maskGpu.run(base.raster, mask.raster, node.data);
+          raster = rendered.raster;
+          gpuPasses += rendered.passes;
           usedGpu = true;
           cache.set(maskToken, raster);
         } catch (error) {
