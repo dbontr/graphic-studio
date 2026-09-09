@@ -427,6 +427,19 @@ button {
   color: #f2edeb;
 }
 
+.transform-flips {
+  margin-bottom: 13px;
+}
+
+.node-section-label {
+  margin: 13px 0 10px;
+  color: #746d69;
+  font-size: 9px;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
 .preview-body {
   padding: 10px;
 }

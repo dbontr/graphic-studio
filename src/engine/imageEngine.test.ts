@@ -14,6 +14,7 @@ import {
   type Raster,
 } from './imageEngine';
 import { extractPalette } from './palette-extraction';
+import { transformRaster } from './transform';
 
 function raster(width: number, height: number, pixels: number[]): Raster {
   return { width, height, data: new Uint8ClampedArray(pixels) };
@@ -229,5 +230,69 @@ describe('palette extraction', () => {
     const source = makeDemoRaster(48, 48);
     expect(extractPalette(source, 1).length).toBeGreaterThanOrEqual(2);
     expect(extractPalette(source, 99).length).toBeLessThanOrEqual(16);
+  });
+});
+
+describe('fused transform engine', () => {
+  const redBlue = raster(2, 1, [
+    255, 0, 0, 255,
+    0, 0, 255, 255,
+  ]);
+
+  it('rotates 90 degrees clockwise without resampling artifacts', () => {
+    const result = transformRaster(redBlue, {
+      kind: 'transform', label: 'Rotate', rotation: 90, resample: 'nearest',
+    });
+    expect([result.width, result.height]).toEqual([1, 2]);
+    expect(Array.from(result.data)).toEqual([
+      255, 0, 0, 255,
+      0, 0, 255, 255,
+    ]);
+  });
+
+  it('flips horizontally in a single transform stage', () => {
+    const result = transformRaster(redBlue, {
+      kind: 'transform', label: 'Flip', flipX: true, resample: 'nearest',
+    });
+    expect(Array.from(result.data)).toEqual([
+      0, 0, 255, 255,
+      255, 0, 0, 255,
+    ]);
+  });
+  it('crops opposing edges before rotation and scaling', () => {
+    const source = raster(4, 1, [
+      10, 0, 0, 255,
+      20, 0, 0, 255,
+      30, 0, 0, 255,
+      40, 0, 0, 255,
+    ]);
+    const result = transformRaster(source, {
+      kind: 'transform', label: 'Crop', cropLeft: 25, cropRight: 25,
+      resample: 'nearest',
+    });
+    expect([result.width, result.height]).toEqual([2, 1]);
+    expect(Array.from(result.data)).toEqual([
+      20, 0, 0, 255,
+      30, 0, 0, 255,
+    ]);
+  });
+
+  it('scales with nearest-neighbor sampling and preserves alpha', () => {
+    const result = transformRaster(redBlue, {
+      kind: 'transform', label: 'Scale', scale: 200, resample: 'nearest',
+    });
+    expect([result.width, result.height]).toEqual([4, 2]);
+    expect(Array.from(result.data.slice(0, 16))).toEqual([
+      255, 0, 0, 255, 255, 0, 0, 255,
+      0, 0, 255, 255, 0, 0, 255, 255,
+    ]);
+  });
+
+  it('returns the existing immutable raster for an exact no-op transform', () => {
+    const result = transformRaster(redBlue, {
+      kind: 'transform', label: 'Identity', rotation: 0, scale: 100,
+      resample: 'bilinear',
+    });
+    expect(result).toBe(redBlue);
   });
 });

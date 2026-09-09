@@ -18,6 +18,7 @@ import {
   Download,
   FolderOpen,
   Gauge,
+  Crop,
   Grid3X3,
   Palette as PaletteIcon,
   Play,
@@ -114,6 +115,7 @@ function downloadBlob(blob: Blob, fileName: string): void {
 
 const palette = [
   { kind: 'adjust' as const, label: 'Color + tone', icon: SlidersHorizontal, hint: 'Exposure, gamma, temperature' },
+  { kind: 'transform' as const, label: 'Transform', icon: Crop, hint: 'Crop, rotate, flip, resize' },
   { kind: 'dither' as const, label: 'Dither', icon: Sparkles, hint: '9 algorithms' },
   { kind: 'palette' as const, label: 'Palette map', icon: PaletteIcon, hint: 'Retro + grayscale palettes' },
   { kind: 'convolution' as const, label: 'Convolution', icon: ScanLine, hint: 'Blur, sharpen, edge, emboss' },

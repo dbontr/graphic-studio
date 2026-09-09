@@ -38,9 +38,10 @@ No uploaded image needs to leave the device.
 ### Processing nodes
 
 - Color + tone: exposure, brightness, contrast, saturation, gamma, temperature, tint
+- Transform: crop edges, 90° rotation, horizontal/vertical flip, 10–200% resize, nearest or bilinear resampling
 - Pixelate
 - Posterize
-- Palette mapping: Game Boy, PICO-8, CGA, monochrome, 4-level and 8-level grayscale
+- Palette mapping: Game Boy, PICO-8, CGA, monochrome, grayscale, editable custom palettes, source palette extraction
 - Convolution: blur, sharpen, edge detection, emboss, adjustable strength
 - Dither: Floyd–Steinberg, Atkinson, Burkes, Sierra Lite, Bayer 2×2 / 4×4 / 8×8, threshold, deterministic noise
 
@@ -104,7 +105,7 @@ That command runs linting, the engine test suite, TypeScript, and the production
 
 ## Direction
 
-The render foundation is intentionally larger than a dithering clone. Planned higher-level capabilities include custom palette extraction and editing, masks, compositing and blend nodes, transforms and crops, curves, halftones and blue-noise screens, reusable subgraphs, presets, batch export, comparison views, histogram/scopes, and additional GPU kernels.
+The render foundation is intentionally larger than a dithering clone. Planned higher-level capabilities include masks, compositing and blend nodes, curves, halftones and blue-noise screens, reusable subgraphs, presets, batch export, comparison views, histogram/scopes, vector/text overlays, and additional GPU kernels.
 
 The goal is to keep those features on the same local-first architecture rather than growing a server dependency.
 

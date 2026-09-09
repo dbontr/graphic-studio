@@ -6,6 +6,7 @@ import type {
   StudioNodeData,
 } from '../model';
 import type { PipelineStage, Raster, RenderPlan } from './types';
+import { transformRaster } from './transform';
 
 export type { Raster } from './types';
 
@@ -59,11 +60,21 @@ export function stableStageSignature(stage: PipelineStage): string {
     d.kind,
     d.enabled,
     d.brightness,
-    d.contrast,    d.saturation,
+    d.contrast,
+    d.saturation,
     d.exposure,
     d.gamma,
     d.temperature,
     d.tint,
+    d.rotation,
+    d.flipX,
+    d.flipY,
+    d.cropLeft,
+    d.cropTop,
+    d.cropRight,
+    d.cropBottom,
+    d.scale,
+    d.resample,
     d.pixelSize,
     d.levels,
     d.palette,
@@ -537,6 +548,8 @@ export function applyEffectCpu(raster: Raster, node: StudioNodeData): Raster {
   switch (node.kind) {
     case 'adjust':
       return adjustRaster(raster, node);
+    case 'transform':
+      return transformRaster(raster, node);
     case 'pixelate':
       return pixelateRaster(raster, Number(node.pixelSize ?? 8));
     case 'posterize':
