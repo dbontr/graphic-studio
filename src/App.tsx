@@ -90,7 +90,7 @@ const palette = [
 ];
 
 export default function App() {
-  const initial = useMemo(loadWorkflow, []);
+  const initial = useMemo(() => loadWorkflow(), []);
   const [nodes, setNodes, onNodesChange] = useNodesState<StudioFlowNode>(
     initial.nodes,
   );
