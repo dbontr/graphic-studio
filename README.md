@@ -27,7 +27,7 @@ No uploaded image needs to leave the device.
 - Drag-and-drop image loading anywhere on the workspace
 - Clipboard image paste support
 - PNG, JPEG, WebP, GIF, and AVIF input
-- Live preview plus full-resolution PNG, JPEG, and WebP export
+- Live result/original preview plus draggable split before/after comparison and full-resolution PNG, JPEG, and WebP export
 - Export panel with filename, quality, alpha-aware WebP, and configurable JPEG transparency matte
 - Node bypass / enable controls
 - Undo / redo with drag and slider coalescing
@@ -91,7 +91,7 @@ The engine uses an adaptive hybrid policy: a GPU round trip is avoided for tiny 
 
 A source-revision + stage-signature cache stores reusable intermediate rasters with a bounded memory budget. Multi-input cache keys include branch identity and semantic controls, so changing mask channel, inversion, strength, blend mode, or opacity invalidates only the answer-relevant downstream work. Moving nodes does not rerender the image because layout coordinates are not part of the semantic render plan. During rapid slider edits, the main thread debounces changes while the render client keeps at most one active render and one newest queued render.
 
-Preview decoding is capped for interactivity, while export re-decodes the original source at a much higher resolution budget. Live frames are transferred from the render worker as `ImageBitmap` objects and drawn directly to the preview canvas, so interactive rendering pays no image-encoding or Blob-URL churn. A single bounded worker-side analysis pass builds the RGB/luminance histogram, 128×64 luminance waveform, and 96×96 Cb/Cr vectorscope with at most 250,000 samples, avoiding any main-thread pixel readback. PNG, JPEG, or WebP encoding only happens on explicit export; JPEG exports flatten alpha against the selected matte while PNG and WebP preserve transparency. This keeps editing responsive without permanently throwing away source resolution.
+Preview decoding is capped for interactivity, while export re-decodes the original source at a much higher resolution budget. The worker exposes a zero-copy source-preview snapshot alongside processed frames so the Output node can switch between Result, Original, and draggable Split comparison modes without rerunning the graph. Source and live frames are transferred as `ImageBitmap` objects and drawn directly to preview canvases, so interactive rendering pays no image-encoding or Blob-URL churn. A single bounded worker-side analysis pass builds the RGB/luminance histogram, 128×64 luminance waveform, and 96×96 Cb/Cr vectorscope with at most 250,000 samples, avoiding any main-thread pixel readback. PNG, JPEG, or WebP encoding only happens on explicit export; JPEG exports flatten alpha against the selected matte while PNG and WebP preserve transparency. This keeps editing responsive without permanently throwing away source resolution.
 
 ## Stack
 
@@ -122,7 +122,7 @@ That command runs linting, the engine test suite, TypeScript, and the production
 
 ## Direction
 
-The render foundation is intentionally larger than a dithering clone. Planned higher-level capabilities include reusable subgraphs, presets, batch and vector export, comparison views, vector/text overlays, advanced mask blur/morphology, and additional GPU kernels.
+The render foundation is intentionally larger than a dithering clone. Planned higher-level capabilities include reusable subgraphs, presets, batch and vector export, vector/text overlays, advanced mask blur/morphology, and additional GPU kernels.
 
 The goal is to keep those features on the same local-first architecture rather than growing a server dependency.
 

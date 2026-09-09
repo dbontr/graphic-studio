@@ -199,6 +199,7 @@ export default function App() {
   const [exportQuality, setExportQuality] = useState(0.92);
   const [exportMatte, setExportMatte] = useState('#ffffff');
   const [exportFileName, setExportFileName] = useState('graphic-studio-output');
+  const [sourceBitmap, setSourceBitmap] = useState<ImageBitmap | null>(null);
   const [outputBitmap, setOutputBitmap] = useState<ImageBitmap | null>(null);
   const [telemetry, setTelemetry] = useState<EngineTelemetry | null>(null);
   const [scopes, setScopes] = useState<FrameScopes | null>(null);
@@ -215,6 +216,7 @@ export default function App() {
   const dragStart = useRef<Snapshot | null>(null);
   const dragDepth = useRef(0);
   const engineRef = useRef<RenderEngineClient | null>(null);
+  const sourceBitmapRef = useRef<ImageBitmap | null>(null);
   const outputBitmapRef = useRef<ImageBitmap | null>(null);
   const renderGeneration = useRef(0);
   const workflowInputRef = useRef<HTMLInputElement | null>(null);
@@ -270,6 +272,8 @@ export default function App() {
       active = false;
       engine.dispose();
       engineRef.current = null;
+      sourceBitmapRef.current?.close();
+      sourceBitmapRef.current = null;
       outputBitmapRef.current?.close();
       outputBitmapRef.current = null;
     };
@@ -281,6 +285,30 @@ export default function App() {
       JSON.stringify({ nodes, edges } satisfies Snapshot),
     );
   }, [nodes, edges]);
+
+  useEffect(() => {
+    if (!engineReady || !engineRef.current) return;
+    const engine = engineRef.current;
+    let active = true;
+    void engine.sourcePreview()
+      .then((bitmap) => {
+        if (!active) {
+          bitmap.close();
+          return;
+        }
+        const previous = sourceBitmapRef.current;
+        sourceBitmapRef.current = bitmap;
+        setSourceBitmap(bitmap);
+        previous?.close();
+      })
+      .catch((reason: unknown) => {
+        if (!active) return;
+        setError(reason instanceof Error ? reason.message : String(reason));
+      });
+    return () => {
+      active = false;
+    };
+  }, [engineReady, sourceVersion]);
 
   useEffect(() => {
     if (!engineReady || !engineRef.current) return;
@@ -589,6 +617,7 @@ export default function App() {
       updateNodeData,
       uploadSource,
       extractPalette,
+      sourceBitmap,
       outputBitmap,
       outputMeta,
       telemetry,
@@ -600,6 +629,7 @@ export default function App() {
       updateNodeData,
       uploadSource,
       extractPalette,
+      sourceBitmap,
       outputBitmap,
       outputMeta,
       telemetry,

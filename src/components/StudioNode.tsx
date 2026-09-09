@@ -17,7 +17,7 @@ import {
   TrendingUp,
 } from 'lucide-react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import {
   ERROR_DIFFUSION_ALGORITHMS,
   type ErrorDiffusionAlgorithm,
@@ -40,7 +40,17 @@ const kindIcon = {
   output: ImageIcon,
 };
 
-function BitmapPreview({ bitmap }: { bitmap: ImageBitmap }) {
+function BitmapPreview({
+  bitmap,
+  ariaLabel = 'Processed output',
+  className = '',
+  style,
+}: {
+  bitmap: ImageBitmap;
+  ariaLabel?: string;
+  className?: string;
+  style?: CSSProperties;
+}) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -56,9 +66,51 @@ function BitmapPreview({ bitmap }: { bitmap: ImageBitmap }) {
     <canvas
       ref={canvasRef}
       role="img"
-      aria-label="Processed output"
-      className="preview-canvas"
+      aria-label={ariaLabel}
+      className={['preview-canvas', className].filter(Boolean).join(' ')}
+      style={style}
     />
+  );
+}
+
+function ComparisonPreview({
+  original,
+  result,
+  split,
+  onSplit,
+}: {
+  original: ImageBitmap;
+  result: ImageBitmap;
+  split: number;
+  onSplit: (value: number) => void;
+}) {
+  return (
+    <div className="comparison-preview nodrag nowheel">
+      <BitmapPreview
+        bitmap={original}
+        ariaLabel="Original source"
+        className="comparison-canvas comparison-canvas--original"
+      />
+      <BitmapPreview
+        bitmap={result}
+        ariaLabel="Processed result"
+        className="comparison-canvas comparison-canvas--result"
+        style={{ clipPath: `inset(0 ${100 - split}% 0 0)` }}
+      />
+      <span className="comparison-divider" style={{ left: `${split}%` }} aria-hidden="true" />
+      <span className="comparison-label comparison-label--original">Original</span>
+      <span className="comparison-label comparison-label--result">Result</span>
+      <input
+        className="comparison-scrubber nodrag nowheel"
+        type="range"
+        min={0}
+        max={100}
+        value={split}
+        aria-label="Before and after split"
+        onPointerDown={(event) => event.stopPropagation()}
+        onChange={(event) => onSplit(Number(event.target.value))}
+      />
+    </div>
   );
 }
 
@@ -211,6 +263,8 @@ function MultiInputHandles({ kind }: { kind: 'blend' | 'mask' }) {
 
 export function StudioNode({ id, data, selected }: NodeProps<StudioFlowNode>) {
   const studio = useStudio();
+  const [previewMode, setPreviewMode] = useState<'result' | 'original' | 'split'>('result');
+  const [comparisonSplit, setComparisonSplit] = useState(50);
   const Icon = kindIcon[data.kind];
   const update = (patch: Partial<typeof data>) => studio.updateNodeData(id, patch);
   const commit = (patch: Partial<typeof data>) => {
@@ -861,26 +915,52 @@ export function StudioNode({ id, data, selected }: NodeProps<StudioFlowNode>) {
         <div className="node-body preview-body">
           <div className={studio.rendering ? 'preview-frame is-rendering' : 'preview-frame'}>
             {studio.outputBitmap ? (
-              <BitmapPreview bitmap={studio.outputBitmap} />
+              previewMode === 'original' && studio.sourceBitmap ? (
+                <BitmapPreview bitmap={studio.sourceBitmap} ariaLabel="Original source" />
+              ) : previewMode === 'split' && studio.sourceBitmap ? (
+                <ComparisonPreview
+                  original={studio.sourceBitmap}
+                  result={studio.outputBitmap}
+                  split={comparisonSplit}
+                  onSplit={setComparisonSplit}
+                />
+              ) : (
+                <BitmapPreview bitmap={studio.outputBitmap} />
+              )
             ) : (
               <div className="preview-empty">Preparing render engine…</div>
             )}
             {studio.rendering && <span className="preview-rendering">Rendering</span>}
           </div>
           <footer className="preview-footer">
-            <div>
-              <strong>Live result</strong>
+            <div className="preview-meta">
+              <strong>{previewMode === 'original' ? 'Original' : previewMode === 'split' ? 'Compare' : 'Result'}</strong>
               <span>{studio.outputMeta}</span>
             </div>
-            <button
-              className="icon-button nodrag"
-              type="button"
-              aria-label="Export full-resolution PNG"
-              title="Export full-resolution PNG"
-              onClick={studio.exportOutput}
-            >
-              <Download size={15} />
-            </button>
+            <div className="preview-footer-actions nodrag">
+              <div className="preview-mode-switch" role="group" aria-label="Preview comparison mode">
+                {(['result', 'original', 'split'] as const).map((mode) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    className={previewMode === mode ? 'active' : ''}
+                    disabled={mode !== 'result' && !studio.sourceBitmap}
+                    onClick={() => setPreviewMode(mode)}
+                  >
+                    {mode === 'result' ? 'Result' : mode === 'original' ? 'Original' : 'Split'}
+                  </button>
+                ))}
+              </div>
+              <button
+                className="icon-button"
+                type="button"
+                aria-label="Export full-resolution PNG"
+                title="Export full-resolution PNG"
+                onClick={studio.exportOutput}
+              >
+                <Download size={15} />
+              </button>
+            </div>
           </footer>
         </div>
       )}

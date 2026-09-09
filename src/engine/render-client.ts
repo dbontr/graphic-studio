@@ -9,6 +9,7 @@ import type {
 type WorkerResponse =
   | { id: number; ok: true; type: 'capabilities'; webgpu: boolean }
   | { id: number; ok: true; type: 'source'; meta: SourceMeta }
+  | { id: number; ok: true; type: 'source-preview'; bitmap: ImageBitmap }
   | { id: number; ok: true; type: 'palette'; colors: string[] }
   | { id: number; ok: true; type: 'render'; frame: RenderedFrame }
   | { id: number; ok: true; type: 'export'; image: RenderedImage }
@@ -79,6 +80,14 @@ export class RenderEngineClient {
       throw new Error('Unexpected source response.');
     }
     return response.meta;
+  }
+
+  async sourcePreview(): Promise<ImageBitmap> {
+    const response = await this.rpc({ type: 'source-preview' });
+    if (!response.ok || response.type !== 'source-preview') {
+      throw new Error('Unexpected source preview response.');
+    }
+    return response.bitmap;
   }
 
   async extractPalette(count = 8): Promise<string[]> {

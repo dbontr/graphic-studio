@@ -242,7 +242,7 @@ button {
 }
 
 .studio-node--output {
-  width: 350px;
+  width: 400px;
 }
 
 .node-header {
@@ -759,7 +759,8 @@ button {
   color: #f3eeeb;
 }
 
-.preview-frame.is-rendering img {
+.preview-frame.is-rendering img,
+.preview-frame.is-rendering .preview-canvas {
   opacity: 0.68;
   filter: saturate(0.8);
 }
@@ -1671,4 +1672,115 @@ button {
   color: #69625f;
   font-size: 8px;
   line-height: 1.4;
+}
+
+
+.comparison-preview {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+.comparison-canvas {
+  position: absolute;
+  inset: 0;
+}
+
+.comparison-canvas--result {
+  z-index: 2;
+  will-change: clip-path;
+}
+
+.comparison-divider {
+  position: absolute;
+  z-index: 4;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.32);
+  transform: translateX(-0.5px);
+  pointer-events: none;
+}
+
+.comparison-scrubber {
+  position: absolute;
+  z-index: 5;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0.001;
+  cursor: ew-resize;
+}
+
+.comparison-label {
+  position: absolute;
+  z-index: 4;
+  top: 9px;
+  padding: 4px 6px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  background: rgba(15, 13, 13, 0.72);
+  color: #d8d2cf;
+  font-size: 8px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  pointer-events: none;
+  backdrop-filter: blur(8px);
+}
+
+.comparison-label--original { left: 9px; }
+.comparison-label--result { right: 9px; }
+
+.preview-meta {
+  min-width: 0;
+  flex: 1;
+}
+
+.preview-meta span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.preview-footer-actions {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-left: 10px;
+}
+
+.preview-mode-switch {
+  display: flex;
+  align-items: center;
+  padding: 2px;
+  border: 1px solid rgba(255, 255, 255, 0.075);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.preview-mode-switch button {
+  height: 24px;
+  padding: 0 7px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #756e6b;
+  font-size: 8px;
+  font-weight: 650;
+}
+
+.preview-mode-switch button:hover:not(:disabled) {
+  color: #ddd7d3;
+}
+
+.preview-mode-switch button.active {
+  background: rgba(255, 255, 255, 0.08);
+  color: #f0ebe8;
+}
+
+.preview-mode-switch button:disabled {
+  cursor: default;
+  opacity: 0.35;
 }
