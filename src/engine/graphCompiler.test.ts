@@ -90,6 +90,7 @@ describe('multi-input graph compiler', () => {
       },
     });
     const edges: StudioEdge[] = [
+      { id: 'mask-source-input', source: 'source', target: 'mask-source' },
       { id: 'base', source: 'source', target: 'mask', targetHandle: 'base' },
       { id: 'mask', source: 'mask-source', target: 'mask', targetHandle: 'mask' },
       { id: 'out', source: 'mask', target: 'output' },
