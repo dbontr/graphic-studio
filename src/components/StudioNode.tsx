@@ -455,6 +455,37 @@ export function StudioNode({ id, data, selected }: NodeProps<StudioFlowNode>) {
             onBegin={studio.checkpoint}
             onChange={(maskStrength) => update({ maskStrength })}
           />
+          <RangeControl
+            label="Black point"
+            value={Number(data.maskBlackPoint ?? 0)}
+            min={0}
+            max={99}
+            unit="%"
+            onBegin={studio.checkpoint}
+            onChange={(maskBlackPoint) => update({
+              maskBlackPoint: Math.min(maskBlackPoint, Number(data.maskWhitePoint ?? 100) - 1),
+            })}
+          />
+          <RangeControl
+            label="White point"
+            value={Number(data.maskWhitePoint ?? 100)}
+            min={1}
+            max={100}
+            unit="%"
+            onBegin={studio.checkpoint}
+            onChange={(maskWhitePoint) => update({
+              maskWhitePoint: Math.max(maskWhitePoint, Number(data.maskBlackPoint ?? 0) + 1),
+            })}
+          />
+          <RangeControl
+            label="Mask gamma"
+            value={Number(data.maskGamma ?? 1)}
+            min={0.2}
+            max={4}
+            step={0.05}
+            onBegin={studio.checkpoint}
+            onChange={(maskGamma) => update({ maskGamma })}
+          />
           <div className="segmented nodrag">
             <button
               className={data.maskInvert ? 'active' : ''}

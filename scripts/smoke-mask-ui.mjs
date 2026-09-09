@@ -28,6 +28,7 @@ try {
     const { compileRenderGraph } = await import('/graphic-studio/src/engine/graphCompiler.ts');
     const { applyEffectCpu, makeDemoRaster } = await import('/graphic-studio/src/engine/imageEngine.ts');
     const { maskRaster } = await import('/graphic-studio/src/engine/mask.ts');
+    const { MaskGpuEngine } = await import('/graphic-studio/src/engine/maskGpuEngine.ts');
 
     const source = { id: 'source', type: 'studio', position: { x: 0, y: 0 }, data: { kind: 'source', label: 'Source' } };
     const maskSource = {
@@ -46,6 +47,7 @@ try {
       data: {
         kind: 'mask', label: 'Mask', maskChannel: 'red',
         maskInvert: true, maskStrength: 73,
+        maskBlackPoint: 18, maskWhitePoint: 82, maskGamma: 1.6,
       },
     };
     const output = { id: 'output', type: 'studio', position: { x: 0, y: 0 }, data: { kind: 'output', label: 'Output' } };
@@ -70,6 +72,21 @@ try {
       const baseRaster = makeDemoRaster();
       const maskRasterSource = applyEffectCpu(baseRaster, maskSource.data);
       const expected = maskRaster(baseRaster, maskRasterSource, mask.data);
+
+      // Isolate the mask compositor itself from upstream Adjust-node GPU/CPU drift.
+      // This direct test must be byte-exact across the entire raster.
+      const directMaskGpu = new MaskGpuEngine();
+      const directMask = await directMaskGpu.run(baseRaster, maskRasterSource, mask.data);
+      let directMaskMaxDifference = 0;
+      let directMaskCompared = 0;
+      for (let offset = 0; offset < expected.data.length; offset += 1) {
+        directMaskMaxDifference = Math.max(
+          directMaskMaxDifference,
+          Math.abs(expected.data[offset] - directMask.data[offset]),
+        );
+        directMaskCompared += 1;
+      }
+
       let maxDifference = 0;
       let compared = 0;
       for (let pixel = 0; pixel < expected.width * expected.height; pixel += 997) {
@@ -88,6 +105,8 @@ try {
         gpuPasses: frame.telemetry.gpuPasses,
         maxDifference,
         compared,
+        directMaskMaxDifference,
+        directMaskCompared,
         graphNodes: plan.graph?.nodes.length ?? 0,
       };
     } finally {
@@ -111,8 +130,13 @@ try {
   console.log('PROBLEMS', JSON.stringify(problems));
 
   if (engine.graphNodes !== 4) throw new Error(`Expected four graph nodes, got ${engine.graphNodes}`);
-  if (engine.maxDifference > 1) throw new Error(`Mask render parity failed: ${engine.maxDifference}`);
-  if (ui.nodes !== 1 || ui.handles !== 2 || ui.channels !== 5 || ui.strengthControls !== 1) {
+  if (engine.directMaskMaxDifference !== 0) {
+    throw new Error(`Direct mask CPU/GPU parity failed: ${engine.directMaskMaxDifference}`);
+  }
+  // The full graph includes an upstream floating-point Adjust node whose CPU/WebGPU
+  // implementations are independently allowed a small byte-level rounding delta.
+  if (engine.maxDifference > 2) throw new Error(`Mask graph parity failed: ${engine.maxDifference}`);
+  if (ui.nodes !== 1 || ui.handles !== 2 || ui.channels !== 5 || ui.strengthControls !== 4) {
     throw new Error(`Mask UI smoke failed: ${JSON.stringify(ui)}`);
   }
   if (problems.length) throw new Error(`Browser problems: ${JSON.stringify(problems)}`);

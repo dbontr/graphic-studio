@@ -100,6 +100,9 @@ function stageSignature(stage: PipelineStage): string {
     d.maskChannel,
     d.maskInvert,
     d.maskStrength,
+    d.maskBlackPoint,
+    d.maskWhitePoint,
+    d.maskGamma,
   ]);
 }
 
