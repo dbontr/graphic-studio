@@ -3,6 +3,7 @@ import type { Edge, Node } from '@xyflow/react';
 export type NodeKind =
   | 'source'
   | 'adjust'
+  | 'curves'
   | 'transform'
   | 'pixelate'
   | 'posterize'
@@ -72,6 +73,11 @@ export interface StudioNodeData extends Record<string, unknown> {
   gamma?: number;
   temperature?: number;
   tint?: number;
+  curveMaster?: number[];
+  curveRed?: number[];
+  curveGreen?: number[];
+  curveBlue?: number[];
+  curveChannel?: 'master' | 'red' | 'green' | 'blue';
   rotation?: TransformRotation;
   flipX?: boolean;
   flipY?: boolean;
@@ -167,6 +173,14 @@ export const effectDefaults: Record<
     gamma: 1,
     temperature: 0,
     tint: 0,
+  },
+  curves: {
+    label: 'Curves',
+    curveMaster: [0, 64, 128, 192, 255],
+    curveRed: [0, 64, 128, 192, 255],
+    curveGreen: [0, 64, 128, 192, 255],
+    curveBlue: [0, 64, 128, 192, 255],
+    curveChannel: 'master',
   },
   transform: {
     label: 'Transform',

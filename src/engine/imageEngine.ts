@@ -97,6 +97,10 @@ export function stableStageSignature(stage: PipelineStage): string {
     d.gamma,
     d.temperature,
     d.tint,
+    d.curveMaster,
+    d.curveRed,
+    d.curveGreen,
+    d.curveBlue,
     d.rotation,
     d.flipX,
     d.flipY,
@@ -194,6 +198,43 @@ function adjustRaster(raster: Raster, node: StudioNodeData): Raster {
     output.data[i] = gammaLut[clampByte(r)];
     output.data[i + 1] = gammaLut[clampByte(g)];
     output.data[i + 2] = gammaLut[clampByte(b)];
+  }
+  return output;
+}
+
+const identityCurve = [0, 64, 128, 192, 255] as const;
+
+function normalizedCurve(points: number[] | undefined): number[] {
+  return identityCurve.map((fallback, index) => {
+    const value = Number(points?.[index] ?? fallback);
+    return Number.isFinite(value) ? clamp(value) : fallback;
+  });
+}
+
+export function buildCurveLut(points: number[] | undefined): Uint8ClampedArray {
+  const curve = normalizedCurve(points);
+  const anchors = identityCurve;
+  const lut = new Uint8ClampedArray(256);
+  for (let value = 0; value < 256; value += 1) {
+    const segment = value <= 64 ? 0 : value <= 128 ? 1 : value <= 192 ? 2 : 3;
+    const start = anchors[segment];
+    const end = anchors[segment + 1];
+    const t = (value - start) / (end - start);
+    lut[value] = clampByte(curve[segment] + (curve[segment + 1] - curve[segment]) * t);
+  }
+  return lut;
+}
+
+export function curveRaster(raster: Raster, node: StudioNodeData): Raster {
+  const output = copyRaster(raster);
+  const master = buildCurveLut(node.curveMaster);
+  const red = buildCurveLut(node.curveRed);
+  const green = buildCurveLut(node.curveGreen);
+  const blue = buildCurveLut(node.curveBlue);
+  for (let index = 0; index < output.data.length; index += 4) {
+    output.data[index] = red[master[output.data[index]]];
+    output.data[index + 1] = green[master[output.data[index + 1]]];
+    output.data[index + 2] = blue[master[output.data[index + 2]]];
   }
   return output;
 }
@@ -601,7 +642,12 @@ export function ditherRaster(
 }
 
 export function isGpuCompatible(node: StudioNodeData): boolean {
-  if (node.kind === 'adjust' || node.kind === 'pixelate' || node.kind === 'posterize') return true;
+  if (
+    node.kind === 'adjust'
+    || node.kind === 'curves'
+    || node.kind === 'pixelate'
+    || node.kind === 'posterize'
+  ) return true;
   if (node.kind === 'palette' || node.kind === 'convolution') return true;
   if (node.kind === 'dither') {
     return node.algorithm === 'bayer-2'
@@ -621,6 +667,8 @@ export function applyEffectCpu(raster: Raster, node: StudioNodeData): Raster {
   switch (node.kind) {
     case 'adjust':
       return adjustRaster(raster, node);
+    case 'curves':
+      return curveRaster(raster, node);
     case 'transform':
       return transformRaster(raster, node);
     case 'pixelate':

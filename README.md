@@ -34,11 +34,12 @@ No uploaded image needs to leave the device.
 - Workflow JSON import / export
 - Local workflow persistence
 - Last source image persistence in IndexedDB
-- Runtime performance panel with backend, compute time, throughput, cache hits, and GPU pass counts
+- Runtime performance panel with backend, compute time, throughput, cache hits, GPU pass counts, and a live RGB/luminance histogram
 
 ### Processing nodes
 
 - Color + tone: exposure, brightness, contrast, saturation, gamma, temperature, tint
+- Curves: interactive five-anchor Master, Red, Green, and Blue tone curves with exact CPU/WebGPU parity
 - Transform: crop edges, 90° rotation, horizontal/vertical flip, 10–200% resize, nearest or bilinear resampling
 - Pixelate
 - Posterize
@@ -57,6 +58,7 @@ Graphic Studio contains a real WebGPU compute backend rather than a GPU-styled U
 The backend currently accelerates:
 
 - Color / tone adjustment
+- Master/RGB tone curves
 - Posterization
 - Palette mapping
 - Pixelation
@@ -79,7 +81,7 @@ The engine uses an adaptive hybrid policy: a GPU round trip is avoided for tiny 
 
 A source-revision + stage-signature cache stores reusable intermediate rasters with a bounded memory budget. Moving nodes does not rerender the image because layout coordinates are not part of the semantic render plan. During rapid slider edits, the main thread debounces changes while the render client keeps at most one active render and one newest queued render.
 
-Preview decoding is capped for interactivity, while export re-decodes the original source at a much higher resolution budget. Live frames are transferred from the render worker as `ImageBitmap` objects and drawn directly to the preview canvas, so interactive rendering pays no image-encoding or Blob-URL churn. PNG, JPEG, or WebP encoding only happens on explicit export; JPEG exports flatten alpha against the selected matte while PNG and WebP preserve transparency. This keeps editing responsive without permanently throwing away source resolution.
+Preview decoding is capped for interactivity, while export re-decodes the original source at a much higher resolution budget. Live frames are transferred from the render worker as `ImageBitmap` objects and drawn directly to the preview canvas, so interactive rendering pays no image-encoding or Blob-URL churn. The worker also builds a bounded-sample RGB/luminance histogram from the final preview raster, avoiding any main-thread pixel readback. PNG, JPEG, or WebP encoding only happens on explicit export; JPEG exports flatten alpha against the selected matte while PNG and WebP preserve transparency. This keeps editing responsive without permanently throwing away source resolution.
 
 ## Stack
 
@@ -110,7 +112,7 @@ That command runs linting, the engine test suite, TypeScript, and the production
 
 ## Direction
 
-The render foundation is intentionally larger than a dithering clone. Planned higher-level capabilities include masks, compositing and blend nodes, curves, blue-noise screens, reusable subgraphs, presets, batch and vector export, comparison views, histogram/scopes, vector/text overlays, and additional GPU kernels.
+The render foundation is intentionally larger than a dithering clone. Planned higher-level capabilities include masks, compositing and blend nodes, blue-noise screens, reusable subgraphs, presets, batch and vector export, comparison views, waveform/vectorscope analysis, vector/text overlays, and additional GPU kernels.
 
 The goal is to keep those features on the same local-first architecture rather than growing a server dependency.
 

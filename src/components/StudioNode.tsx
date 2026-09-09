@@ -13,6 +13,7 @@ import {
   X,
   SlidersHorizontal,
   Sparkles,
+  TrendingUp,
 } from 'lucide-react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
 import { useEffect, useRef } from 'react';
@@ -26,6 +27,7 @@ import { useStudio } from '../studio-context';
 const kindIcon = {
   source: ImagePlus,
   adjust: SlidersHorizontal,
+  curves: TrendingUp,
   transform: Crop,
   pixelate: Grid3X3,
   posterize: CircleDot,
@@ -94,6 +96,92 @@ function RangeControl({
     </label>
   );
 }
+
+const defaultCurve = [0, 64, 128, 192, 255];
+
+function safeCurve(points: number[] | undefined): number[] {
+  return defaultCurve.map((fallback, index) => {
+    const value = Number(points?.[index] ?? fallback);
+    return Number.isFinite(value) ? Math.max(0, Math.min(255, value)) : fallback;
+  });
+}
+
+function CurveEditor({
+  points,
+  onBegin,
+  onChange,
+}: {
+  points: number[] | undefined;
+  onBegin: () => void;
+  onChange: (points: number[]) => void;
+}) {
+  const draggingIndex = useRef<number | null>(null);
+  const values = safeCurve(points);
+  const polyline = values
+    .map((value, index) => `${(defaultCurve[index] / 255) * 100},${100 - (value / 255) * 100}`)
+    .join(' ');
+  const updatePoint = (index: number, clientY: number, svg: SVGSVGElement | null) => {
+    if (!svg) return;
+    const rect = svg.getBoundingClientRect();
+    if (!rect.height) return;
+    const normalized = 1 - (clientY - rect.top) / rect.height;
+    const next = [...values];
+    next[index] = Math.round(Math.max(0, Math.min(1, normalized)) * 255);
+    onChange(next);
+  };
+
+  return (
+    <div className="curve-editor nodrag">
+      <svg
+        viewBox="0 0 100 100"
+        preserveAspectRatio="none"
+        aria-label="Tone curve editor"
+        onPointerMove={(event) => {
+          if (draggingIndex.current === null) return;
+          updatePoint(draggingIndex.current, event.clientY, event.currentTarget);
+        }}
+        onPointerUp={(event) => {
+          draggingIndex.current = null;
+          if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+            event.currentTarget.releasePointerCapture(event.pointerId);
+          }
+        }}
+        onPointerCancel={() => { draggingIndex.current = null; }}
+      >
+        {[25, 50, 75].map((value) => (
+          <g key={value}>
+            <line x1={value} y1="0" x2={value} y2="100" className="curve-grid" />
+            <line x1="0" y1={value} x2="100" y2={value} className="curve-grid" />
+          </g>
+        ))}
+        <line x1="0" y1="100" x2="100" y2="0" className="curve-diagonal" />
+        <polyline points={polyline} className="curve-line" />
+        {values.map((value, index) => (
+          <circle
+            key={index}
+            cx={(defaultCurve[index] / 255) * 100}
+            cy={100 - (value / 255) * 100}
+            r="3.5"
+            className="curve-point"
+            onPointerDown={(event) => {
+              event.stopPropagation();
+              const svg = event.currentTarget.ownerSVGElement;
+              if (!svg) return;
+              draggingIndex.current = index;
+              svg.setPointerCapture(event.pointerId);
+              onBegin();
+              updatePoint(index, event.clientY, svg);
+            }}
+          />
+        ))}
+      </svg>
+      <div className="curve-values">
+        {values.map((value, index) => <code key={index}>{value}</code>)}
+      </div>
+    </div>
+  );
+}
+
 export function StudioNode({ id, data, selected }: NodeProps<StudioFlowNode>) {
   const studio = useStudio();
   const Icon = kindIcon[data.kind];
@@ -113,6 +201,16 @@ export function StudioNode({ id, data, selected }: NodeProps<StudioFlowNode>) {
     || selectedAlgorithm === 'halftone-line'
     || selectedAlgorithm === 'crosshatch';
   const usesPatternScale = isProceduralPattern || selectedAlgorithm === 'cmyk-halftone';
+  const curveChannel = data.curveChannel ?? 'master';
+  const curveKey = curveChannel === 'red'
+    ? 'curveRed'
+    : curveChannel === 'green'
+      ? 'curveGreen'
+      : curveChannel === 'blue'
+        ? 'curveBlue'
+        : 'curveMaster';
+  const activeCurve = data[curveKey] as number[] | undefined;
+  const updateCurve = (points: number[]) => update({ [curveKey]: points } as Partial<typeof data>);
 
   return (
     <section
@@ -226,6 +324,37 @@ export function StudioNode({ id, data, selected }: NodeProps<StudioFlowNode>) {
             onBegin={studio.checkpoint}
             onChange={(tint) => update({ tint })}
           />
+        </div>
+      )}
+
+      {data.kind === 'curves' && (
+        <div className="node-body curves-body">
+          <div className="segmented curve-channel-tabs nodrag">
+            {(['master', 'red', 'green', 'blue'] as const).map((channel) => (
+              <button
+                key={channel}
+                type="button"
+                className={curveChannel === channel ? 'active' : ''}
+                onClick={() => update({ curveChannel: channel })}
+              >
+                {channel === 'master' ? 'Master' : channel[0].toUpperCase()}
+              </button>
+            ))}
+          </div>
+          <CurveEditor
+            points={activeCurve}
+            onBegin={studio.checkpoint}
+            onChange={updateCurve}
+          />
+          <div className="curve-actions nodrag">
+            <span>Black · shadows · mid · highlights · white</span>
+            <button
+              type="button"
+              onClick={() => commit({ [curveKey]: [...defaultCurve] } as Partial<typeof data>)}
+            >
+              Reset
+            </button>
+          </div>
         </div>
       )}
 
