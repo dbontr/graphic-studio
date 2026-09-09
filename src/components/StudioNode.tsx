@@ -7,7 +7,9 @@ import {
   Image as ImageIcon,
   ImagePlus,
   Palette as PaletteIcon,
+  Plus,
   ScanLine,
+  X,
   SlidersHorizontal,
   Sparkles,
 } from 'lucide-react';
@@ -71,6 +73,9 @@ export function StudioNode({ id, data, selected }: NodeProps<StudioFlowNode>) {
     studio.checkpoint();
     update(patch);
   };
+  const customPalette = data.customPalette?.length
+    ? data.customPalette.slice(0, 16)
+    : ['#111111', '#f4f1ea'];
 
   return (
     <section
@@ -227,8 +232,65 @@ export function StudioNode({ id, data, selected }: NodeProps<StudioFlowNode>) {
               <option value="mono">Monochrome</option>
               <option value="grayscale-4">Grayscale · 4</option>
               <option value="grayscale-8">Grayscale · 8</option>
+              <option value="custom">Custom palette</option>
             </select>
           </label>
+          {data.palette === 'custom' && (
+            <>
+              <div className="custom-palette nodrag">
+                {customPalette.map((color, index) => (
+                  <div className="custom-color" key={index}>
+                    <input
+                      type="color"
+                      value={color}
+                      aria-label={'Palette color ' + (index + 1)}
+                      onPointerDown={studio.checkpoint}
+                      onChange={(event) => {
+                        const colors = [...customPalette];
+                        colors[index] = event.target.value;
+                        update({ customPalette: colors });
+                      }}
+                    />
+                    <code>{color.toUpperCase()}</code>
+                    <button
+                      type="button"
+                      aria-label={'Remove palette color ' + (index + 1)}
+                      disabled={customPalette.length <= 2}
+                      onClick={() => commit({
+                        customPalette: customPalette.filter((_, colorIndex) => colorIndex !== index),
+                      })}
+                    >
+                      <X size={11} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+              <div className="palette-actions nodrag">
+                <button
+                  type="button"
+                  onClick={() => {
+                    void studio.extractPalette(8)
+                      .then((colors) => {
+                        studio.checkpoint();
+                        update({ customPalette: colors });
+                      })
+                      .catch(() => undefined);
+                  }}
+                >
+                  <Sparkles size={11} />
+                  Extract 8
+                </button>
+                <button
+                  type="button"
+                  disabled={customPalette.length >= 16}
+                  onClick={() => commit({ customPalette: [...customPalette, '#808080'] })}
+                >
+                  <Plus size={11} />
+                  Add
+                </button>
+              </div>
+            </>
+          )}
         </div>
       )}
 

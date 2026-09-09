@@ -25,8 +25,10 @@ export type PalettePreset =
   | 'mono'
   | 'gameboy'
   | 'cga'
-  | 'pico8'  | 'grayscale-4'
-  | 'grayscale-8';
+  | 'pico8'
+  | 'grayscale-4'
+  | 'grayscale-8'
+  | 'custom';
 
 export type ConvolutionMode = 'blur' | 'sharpen' | 'edge' | 'emboss';
 
@@ -45,6 +47,7 @@ export interface StudioNodeData extends Record<string, unknown> {
   pixelSize?: number;
   levels?: number;
   palette?: PalettePreset;
+  customPalette?: string[];
   convolution?: ConvolutionMode;
   strength?: number;
   algorithm?: DitherAlgorithm;
@@ -55,6 +58,7 @@ export interface StudioNodeData extends Record<string, unknown> {
 
 export type StudioFlowNode = Node<StudioNodeData, 'studio'>;
 export type StudioEdge = Edge;
+
 export const initialNodes: StudioFlowNode[] = [
   {
     id: 'source-1',
@@ -82,7 +86,8 @@ export const initialNodes: StudioFlowNode[] = [
     id: 'dither-1',
     type: 'studio',
     position: { x: 715, y: 255 },
-    data: {      kind: 'dither',
+    data: {
+      kind: 'dither',
       label: 'Dither',
       algorithm: 'floyd-steinberg',
       threshold: 128,
@@ -109,7 +114,8 @@ export const effectDefaults: Record<
   Omit<StudioNodeData, 'kind'>
 > = {
   adjust: {
-    label: 'Color + tone',    brightness: 0,
+    label: 'Color + tone',
+    brightness: 0,
     contrast: 0,
     saturation: 100,
     exposure: 0,
@@ -128,6 +134,7 @@ export const effectDefaults: Record<
   palette: {
     label: 'Palette map',
     palette: 'gameboy',
+    customPalette: ['#111111', '#f4f1ea'],
   },
   convolution: {
     label: 'Convolution',
@@ -136,7 +143,8 @@ export const effectDefaults: Record<
   },
   dither: {
     label: 'Dither',
-    algorithm: 'floyd-steinberg',    threshold: 128,
+    algorithm: 'floyd-steinberg',
+    threshold: 128,
     monochrome: true,
     seed: 1,
   },

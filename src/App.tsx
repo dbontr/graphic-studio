@@ -307,6 +307,12 @@ export default function App() {
     [setNodes],
   );
 
+  const extractPalette = useCallback(async (count = 8) => {
+    const engine = engineRef.current;
+    if (!engine) throw new Error('Render engine is not ready yet.');
+    return engine.extractPalette(count);
+  }, []);
+
   const exportOutput = useCallback(() => {
     const engine = engineRef.current;
     if (!engine || exporting) return;
@@ -501,6 +507,7 @@ export default function App() {
       checkpoint,
       updateNodeData,
       uploadSource,
+      extractPalette,
       outputUrl,
       outputMeta,
       telemetry,
@@ -511,6 +518,7 @@ export default function App() {
       checkpoint,
       updateNodeData,
       uploadSource,
+      extractPalette,
       outputUrl,
       outputMeta,
       telemetry,

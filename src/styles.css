@@ -981,3 +981,91 @@ button {
 .studio-node.is-bypassed .node-heading-copy {
   opacity: 0.52;
 }
+
+.custom-palette {
+  display: grid;
+  gap: 7px;
+  margin: 10px 0 9px;
+}
+
+.custom-color {
+  display: grid;
+  grid-template-columns: 28px 1fr 28px;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 4px 5px;
+  border: 1px solid var(--stroke);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.custom-color input[type="color"] {
+  width: 28px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+}
+.custom-color input[type="color"]::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+.custom-color input[type="color"]::-webkit-color-swatch {
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 6px;
+}
+
+.custom-color code {
+  overflow: hidden;
+  color: #aaa3a0;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 9px;
+  text-overflow: ellipsis;
+}
+
+.custom-color button,
+.palette-actions button {
+  border: 1px solid var(--stroke);
+  background: rgba(255, 255, 255, 0.04);
+  color: #aaa3a0;
+  cursor: pointer;
+}
+
+.custom-color button {
+  width: 28px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border-radius: 7px;
+}
+.custom-color button:hover:not(:disabled),
+.palette-actions button:hover:not(:disabled) {
+  border-color: var(--stroke-strong);
+  background: rgba(255, 255, 255, 0.075);
+  color: #f1ece9;
+}
+
+.custom-color button:disabled,
+.palette-actions button:disabled {
+  opacity: 0.32;
+  cursor: default;
+}
+
+.palette-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 7px;
+}
+
+.palette-actions button {
+  min-height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border-radius: 8px;
+  font-size: 9px;
+}

@@ -3,6 +3,7 @@ import type { RenderPlan, RenderedImage, SourceMeta } from './types';
 type WorkerResponse =
   | { id: number; ok: true; type: 'capabilities'; webgpu: boolean }
   | { id: number; ok: true; type: 'source'; meta: SourceMeta }
+  | { id: number; ok: true; type: 'palette'; colors: string[] }
   | { id: number; ok: true; type: 'render' | 'export'; image: RenderedImage }
   | { id: number; ok: false; error: string };
 
@@ -71,6 +72,14 @@ export class RenderEngineClient {
       throw new Error('Unexpected source response.');
     }
     return response.meta;
+  }
+
+  async extractPalette(count = 8): Promise<string[]> {
+    const response = await this.rpc({ type: 'extract-palette', count });
+    if (!response.ok || response.type !== 'palette') {
+      throw new Error('Unexpected palette response.');
+    }
+    return response.colors;
   }
 
   render(plan: RenderPlan): Promise<RenderedImage> {

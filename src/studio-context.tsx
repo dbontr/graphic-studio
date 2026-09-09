@@ -6,6 +6,7 @@ export interface StudioContextValue {
   checkpoint: () => void;
   updateNodeData: (id: string, patch: Partial<StudioNodeData>) => void;
   uploadSource: (file: File) => void;
+  extractPalette: (count?: number) => Promise<string[]>;
   outputUrl: string;
   outputMeta: string;
   telemetry: EngineTelemetry | null;

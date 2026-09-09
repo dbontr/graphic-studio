@@ -7,10 +7,13 @@ import {
   isGpuCompatible,
   makeDemoRaster,
   palettes,
+  parseHexColor,
   posterizeRaster,
   processStagesCpu,
+  resolvePalette,
   type Raster,
 } from './imageEngine';
+import { extractPalette } from './palette-extraction';
 
 function raster(width: number, height: number, pixels: number[]): Raster {
   return { width, height, data: new Uint8ClampedArray(pixels) };
@@ -184,5 +187,47 @@ describe('node bypass', () => {
       { id: 'b', source: 'disabled', target: 'output' },
     ];
     expect(compilePipeline(nodes, edges).stages).toEqual([]);
+  });
+});
+
+describe('custom palettes', () => {
+  it('parses short and full hex colors and rejects malformed values', () => {
+    expect(parseHexColor('#abc')).toEqual([170, 187, 204]);
+    expect(parseHexColor('#12FE80')).toEqual([18, 254, 128]);
+    expect(parseHexColor('red')).toBeNull();
+  });
+
+  it('deduplicates valid custom colors and falls back when fewer than two survive', () => {
+    expect(resolvePalette({
+      kind: 'palette', label: 'Custom', palette: 'custom',
+      customPalette: ['#000', '#000000', '#fff', 'invalid'],
+    })).toEqual([[0, 0, 0], [255, 255, 255]]);
+    expect(resolvePalette({
+      kind: 'palette', label: 'Fallback', palette: 'custom',
+      customPalette: ['invalid'],
+    })).toBe(palettes.gameboy);
+  });
+});
+
+describe('palette extraction', () => {
+  it('extracts deterministic colors from a source raster', () => {
+    const source = raster(4, 1, [
+      255, 0, 0, 255,
+      255, 0, 0, 255,
+      0, 0, 255, 255,
+      0, 255, 0, 255,
+    ]);
+    const first = extractPalette(source, 3);
+    const second = extractPalette(source, 3);
+    expect(first).toEqual(second);
+    expect(first).toHaveLength(3);
+    expect(new Set(first).size).toBe(3);
+    first.forEach((color) => expect(color).toMatch(/^#[0-9a-f]{6}$/));
+  });
+
+  it('clamps requested palette size to the supported range', () => {
+    const source = makeDemoRaster(48, 48);
+    expect(extractPalette(source, 1).length).toBeGreaterThanOrEqual(2);
+    expect(extractPalette(source, 99).length).toBeLessThanOrEqual(16);
   });
 });

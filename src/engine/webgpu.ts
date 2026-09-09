@@ -1,5 +1,5 @@
 import type { StudioNodeData } from '../model';
-import { palettes } from './imageEngine';
+import { resolvePalette } from './imageEngine';
 import type { PipelineStage, Raster } from './types';
 
 type GpuPass =
@@ -88,8 +88,7 @@ function partitionPasses(stages: PipelineStage[]): GpuPass[] {
   return passes;
 }
 function paletteFunction(index: number, node: StudioNodeData): string {
-  const preset = node.palette ?? 'gameboy';
-  const colors = palettes[preset] ?? palettes.gameboy;
+  const colors = resolvePalette(node);
   const values = colors
     .map(([r, g, b]) => `vec3<f32>(${r}.0, ${g}.0, ${b}.0)`)
     .join(', ');
@@ -127,7 +126,7 @@ function pointPass(pass: Extract<GpuPass, { kind: 'point' }>): CompiledPass {
     const node = stage.data;
     keyParts.push(
       node.kind === 'palette'
-        ? `palette:${node.palette ?? 'gameboy'}`
+        ? `palette:${node.palette ?? 'gameboy'}:${(node.customPalette ?? []).join('.')}`
         : node.kind === 'dither'
           ? `dither:${node.algorithm ?? 'threshold'}`
           : node.kind,
