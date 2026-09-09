@@ -38,6 +38,17 @@ fn packRgba(value: vec4<f32>) -> u32 {
   let v = vec4<u32>(clamp(round(value), vec4<f32>(0.0), vec4<f32>(255.0)));
   return v.r | (v.g << 8u) | (v.b << 16u) | (v.a << 24u);
 }
+
+fn curveSample(value: f32, first: vec4<f32>, last: vec4<f32>) -> f32 {
+  let input = clamp(value, 0.0, 255.0);
+  let segment = select(select(select(3u, 2u, input <= 192.0), 1u, input <= 128.0), 0u, input <= 64.0);
+  let anchors = array<f32, 5>(0.0, 64.0, 128.0, 192.0, 255.0);
+  let points = array<f32, 5>(first.x, first.y, first.z, first.w, last.x);
+  let start = anchors[segment];
+  let end = anchors[segment + 1u];
+  let t = (input - start) / (end - start);
+  return mix(points[segment], points[segment + 1u], t);
+}
 `;
 const BAYER_WGSL = `
 const BAYER2 = array<f32, 4>(0.0, 2.0, 3.0, 1.0);
@@ -81,7 +92,7 @@ fn dotScreen(x: f32, y: f32, angle: f32, scale: f32) -> f32 {
 }
 `;
 
-const pointKinds = new Set(['adjust', 'posterize', 'palette', 'dither']);
+const pointKinds = new Set(['adjust', 'curves', 'posterize', 'palette', 'dither']);
 
 function partitionPasses(stages: PipelineStage[]): GpuPass[] {
   const passes: GpuPass[] = [];
@@ -103,6 +114,15 @@ function partitionPasses(stages: PipelineStage[]): GpuPass[] {
   flush();
   return passes;
 }
+const curveIdentity = [0, 64, 128, 192, 255] as const;
+
+function curveValues(values: number[] | undefined): number[] {
+  return curveIdentity.map((fallback, index) => {
+    const value = Number(values?.[index] ?? fallback);
+    return Number.isFinite(value) ? Math.max(0, Math.min(255, value)) : fallback;
+  });
+}
+
 function paletteFunction(index: number, node: StudioNodeData): string {
   const colors = resolvePalette(node);
   const values = colors
@@ -180,6 +200,31 @@ function pointPass(pass: Extract<GpuPass, { kind: 'point' }>): CompiledPass {
   rgb${index} = vec3<f32>(gray${index}) + (rgb${index} - vec3<f32>(gray${index})) * saturation${index};
   rgb${index} = pow(clamp(rgb${index}, vec3<f32>(0.0), vec3<f32>(255.0)) / 255.0, vec3<f32>(1.0 / gamma${index})) * 255.0;
   color = vec4<f32>(rgb${index}, color.a);
+`);
+    } else if (node.kind === 'curves') {
+      const master = curveValues(node.curveMaster);
+      const red = curveValues(node.curveRed);
+      const green = curveValues(node.curveGreen);
+      const blue = curveValues(node.curveBlue);
+      const m0 = addParam(master[0], master[1], master[2], master[3]);
+      const m1 = addParam(master[4]);
+      const r0 = addParam(red[0], red[1], red[2], red[3]);
+      const r1 = addParam(red[4]);
+      const g0 = addParam(green[0], green[1], green[2], green[3]);
+      const g1 = addParam(green[4]);
+      const b0 = addParam(blue[0], blue[1], blue[2], blue[3]);
+      const b1 = addParam(blue[4]);
+      body.push(`
+  let master${index} = floor(vec3<f32>(
+    curveSample(color.r, params[${m0}], params[${m1}]),
+    curveSample(color.g, params[${m0}], params[${m1}]),
+    curveSample(color.b, params[${m0}], params[${m1}])
+  ) + vec3<f32>(0.5));
+  color = vec4<f32>(floor(vec3<f32>(
+    curveSample(master${index}.r, params[${r0}], params[${r1}]),
+    curveSample(master${index}.g, params[${g0}], params[${g1}]),
+    curveSample(master${index}.b, params[${b0}], params[${b1}])
+  ) + vec3<f32>(0.5)), color.a);
 `);
     } else if (node.kind === 'posterize') {
       const p = addParam(Number(node.levels ?? 5));

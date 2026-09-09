@@ -37,9 +37,18 @@ export interface EngineTelemetry {
   gpuPasses: number;
 }
 
+export interface HistogramData {
+  red: number[];
+  green: number[];
+  blue: number[];
+  luminance: number[];
+  samples: number;
+}
+
 export interface RenderedFrame {
   bitmap: ImageBitmap;
   telemetry: EngineTelemetry;
+  histogram: HistogramData;
 }
 
 export interface RenderedImage {

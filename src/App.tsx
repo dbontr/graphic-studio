@@ -29,6 +29,7 @@ import {
   ScanLine,
   SlidersHorizontal,
   Sparkles,
+  TrendingUp,
   Undo2,
   Zap,
 } from 'lucide-react';
@@ -40,6 +41,7 @@ import {
   useState,
 } from 'react';
 import { ExportPanel } from './components/ExportPanel';
+import { HistogramScope } from './components/HistogramScope';
 import { StudioNode } from './components/StudioNode';
 import { compilePipeline } from './engine/imageEngine';
 import { RenderEngineClient } from './engine/render-client';
@@ -48,6 +50,7 @@ import type {
   EngineTelemetry,
   ExportFormat,
   ExportOptions,
+  HistogramData,
   SourceMeta,
 } from './engine/types';
 import {
@@ -135,6 +138,7 @@ function exportNameForSource(fileName: string): string {
 
 const palette = [
   { kind: 'adjust' as const, label: 'Color + tone', icon: SlidersHorizontal, hint: 'Exposure, gamma, temperature' },
+  { kind: 'curves' as const, label: 'Curves', icon: TrendingUp, hint: 'Master + RGB tone curves' },
   { kind: 'transform' as const, label: 'Transform', icon: Crop, hint: 'Crop, rotate, flip, resize' },
   { kind: 'dither' as const, label: 'Dither', icon: Sparkles, hint: '24 algorithms + screens' },
   { kind: 'palette' as const, label: 'Palette map', icon: PaletteIcon, hint: 'Retro + grayscale palettes' },
@@ -182,6 +186,7 @@ export default function App() {
   const [exportFileName, setExportFileName] = useState('graphic-studio-output');
   const [outputBitmap, setOutputBitmap] = useState<ImageBitmap | null>(null);
   const [telemetry, setTelemetry] = useState<EngineTelemetry | null>(null);
+  const [histogram, setHistogram] = useState<HistogramData | null>(null);
   const [sourceMeta, setSourceMeta] = useState<SourceMeta>({
     width: 960,
     height: 720,
@@ -280,6 +285,7 @@ export default function App() {
           outputBitmapRef.current = frame.bitmap;
           setOutputBitmap(frame.bitmap);
           setTelemetry(frame.telemetry);
+          setHistogram(frame.histogram);
           previous?.close();
         })
         .catch((reason: unknown) => {
@@ -805,6 +811,7 @@ export default function App() {
                   <Gauge size={14} />
                   <strong>Render engine</strong>
                 </header>
+                <HistogramScope histogram={histogram} />
                 <dl>
                   <div>
                     <dt>Active backend</dt>

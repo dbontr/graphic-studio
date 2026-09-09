@@ -8,7 +8,9 @@ import {
 } from '../model';
 import {
   applyEffectCpu,
+  buildCurveLut,
   compilePipeline,
+  curveRaster,
   ditherRaster,
   isGpuCompatible,
   makeDemoRaster,
@@ -406,5 +408,44 @@ describe('CMYK halftone', () => {
       expect(result.data[index + 3]).toBe(255);
     }
     expect(coloredPixels).toBeGreaterThan(0);
+  });
+});
+
+describe('tone curves', () => {
+  it('builds an identity LUT by default', () => {
+    const lut = buildCurveLut(undefined);
+    expect(lut[0]).toBe(0);
+    expect(lut[64]).toBeCloseTo(64, 0);
+    expect(lut[128]).toBeCloseTo(128, 0);
+    expect(lut[255]).toBe(255);
+  });
+
+  it('interpolates five fixed anchors across the full byte range', () => {
+    const lut = buildCurveLut([0, 32, 128, 224, 255]);
+    expect(lut[64]).toBeCloseTo(32, 0);
+    expect(lut[128]).toBeCloseTo(128, 0);
+    expect(lut[192]).toBeCloseTo(224, 0);
+  });
+
+  it('applies master and per-channel curves while preserving alpha', () => {
+    const source = raster(1, 1, [128, 128, 128, 77]);
+    const result = curveRaster(source, {
+      kind: 'curves', label: 'Curves',
+      curveMaster: [0, 64, 128, 192, 255],
+      curveRed: [0, 128, 192, 224, 255],
+      curveGreen: [0, 64, 128, 192, 255],
+      curveBlue: [0, 32, 64, 128, 255],
+    });
+    expect(result.data[0]).toBeGreaterThan(128);
+    expect(result.data[1]).toBeCloseTo(128, 0);
+    expect(result.data[2]).toBeLessThan(128);
+    expect(result.data[3]).toBe(77);
+  });
+
+  it('routes curves through the WebGPU-compatible point path', () => {
+    expect(isGpuCompatible({
+      kind: 'curves', label: 'Curves',
+      curveMaster: [0, 64, 128, 192, 255],
+    })).toBe(true);
   });
 });
