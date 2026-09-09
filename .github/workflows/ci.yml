@@ -24,11 +24,11 @@ jobs:
           cache: npm
       - name: Install
         run: npm ci
+      - name: Install browser
+        run: npx playwright install chromium
       - name: Quality gate
         run: npm run check
-      - name: Install browser smoke dependency
-        run: npm install --no-save --package-lock=false --no-audit playwright@1.55.0
-      - name: Mask browser smoke
+      - name: Browser regression suite
         shell: bash
         run: |
           npm run dev -- --host 127.0.0.1 --port 5173 > /tmp/graphic-studio-vite.log 2>&1 &
@@ -46,4 +46,6 @@ jobs:
             cat /tmp/graphic-studio-vite.log
             exit 1
           fi
-          node scripts/smoke-mask-ui.mjs
+          npm run smoke:browser
+          npm run smoke:v18
+          npm run smoke:cpu
