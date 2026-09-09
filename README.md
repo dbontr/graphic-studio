@@ -1,65 +1,116 @@
 # Graphic Studio
 
-A node-based browser graphics editor focused on dithering, pixel-art processing, and fast experimental image workflows.
+Graphic Studio is a high-performance, node-based image processing studio that runs entirely in the browser and deploys as a static GitHub Pages application.
 
-Graphic Studio is built as a static web application, so the editor runs entirely in the browser and can be hosted on GitHub Pages. Node.js is used for the development and build toolchain; image processing happens locally in the browser.
+It started as a Dither Boy-style experiment and is evolving into a broader local-first graphics workbench for dithering, pixel-art workflows, palette processing, color grading, convolution effects, and reusable image pipelines.
 
-## Current editor
+**Live:** https://dbontr.github.io/graphic-studio/
 
-- Infinite node canvas powered by React Flow
-- Drag-and-drop style image source node
-- Live color / tone adjustments
-- Floyd–Steinberg dithering
-- Atkinson dithering
-- Bayer 4×4 and Bayer 8×8 ordered dithering
-- Threshold dithering
-- Mono and RGB dither modes
-- Pixelate and posterize nodes
-- Live output preview
-- PNG export
-- Node insertion and reconnectable pipelines
-- Undo / redo for editor operations
+## Why this architecture
+
+GitHub Pages cannot run a persistent Node.js backend, so Node.js is deliberately used only for development, testing, and the production build. The shipped application does all image work locally in the browser.
+
+The render architecture is designed around three rules:
+
+1. **Never block the editor UI with image processing.** Rendering runs in a dedicated Web Worker.
+2. **Use the GPU when it actually helps.** Parallel effects use WebGPU compute, while sequential algorithms such as error diffusion remain on an optimized CPU-worker path.
+3. **Do not recompute unchanged work.** The engine compiles the connected graph, caches intermediate rasters, fuses compatible GPU stages, and coalesces stale render requests.
+
+No uploaded image needs to leave the device.
+
+## Current feature set
+
+### Editor
+
+- Infinite node canvas with reconnectable pipelines
+- Drag-and-drop image loading anywhere on the workspace
+- Clipboard image paste support
+- PNG, JPEG, WebP, GIF, and AVIF input
+- Live preview and full-resolution PNG export
+- Node bypass / enable controls
+- Undo / redo with drag and slider coalescing
+- Keyboard shortcuts for undo, redo, save, and render
+- Workflow JSON import / export
 - Local workflow persistence
-- GitHub Pages deployment workflow
+- Last source image persistence in IndexedDB
+- Runtime performance panel with backend, compute time, throughput, cache hits, and GPU pass counts
+
+### Processing nodes
+
+- Color + tone: exposure, brightness, contrast, saturation, gamma, temperature, tint
+- Pixelate
+- Posterize
+- Palette mapping: Game Boy, PICO-8, CGA, monochrome, 4-level and 8-level grayscale
+- Convolution: blur, sharpen, edge detection, emboss, adjustable strength
+- Dither: Floyd–Steinberg, Atkinson, Burkes, Sierra Lite, Bayer 2×2 / 4×4 / 8×8, threshold, deterministic noise
+
+## Render engine
+
+### WebGPU path
+
+Graphic Studio contains a real WebGPU compute backend rather than a GPU-styled UI flag. Compatible graph stages are partitioned into GPU passes, and adjacent point operations are fused into a single compute shader.
+
+The backend currently accelerates:
+
+- Color / tone adjustment
+- Posterization
+- Palette mapping
+- Pixelation
+- 3×3 convolution
+- Bayer dithering
+- Threshold dithering
+- Noise dithering
+
+GPU buffers are reused between renders, compute pipelines are cached, compatible stages are fused, and a ping-pong storage-buffer design avoids intermediate CPU readbacks.
+
+### CPU-worker path
+
+Algorithms with strong serial dependencies are intentionally kept on the worker CPU instead of being forced onto an unsuitable GPU implementation. Error diffusion uses rotating `Float32Array` error rows, avoiding a full-frame floating-point working image and dramatically reducing temporary memory.
+
+The engine uses an adaptive hybrid policy: a GPU round trip is avoided for tiny or cheap GPU prefixes when a sequential CPU stage immediately follows, while all-GPU pipelines and expensive spatial kernels can stay on WebGPU.
+
+### Incremental rendering
+
+A source-revision + stage-signature cache stores reusable intermediate rasters with a bounded memory budget. Moving nodes does not rerender the image because layout coordinates are not part of the semantic render plan. During rapid slider edits, the main thread debounces changes while the render client keeps at most one active render and one newest queued render.
+
+Preview decoding is capped for interactivity, while export re-decodes the original source at a much higher resolution budget. This keeps editing responsive without permanently throwing away source resolution.
 
 ## Stack
 
-- React + TypeScript
+- React 19 + TypeScript
 - Vite
-- `@xyflow/react`
-- Canvas 2D image processing
+- React Flow / XYFlow
+- Dedicated Web Worker
+- WebGPU compute + WGSL
+- OffscreenCanvas + ImageBitmap
+- IndexedDB for local source persistence
 - Vitest
 - GitHub Actions + GitHub Pages
 
-## Local development
+## Development
 
 ```bash
 npm install
 npm run dev
 ```
 
-Then open the Vite URL shown in the terminal.
-
-## Verification
+Run the complete quality gate with:
 
 ```bash
-npm test
-npm run build
+npm run check
 ```
 
-## Architecture
+That command runs linting, the engine test suite, TypeScript, and the production Vite build.
 
-The editor deliberately separates three layers:
+## Direction
 
-1. **Graph model** — nodes and connections are UI state.
-2. **Raster engine** — pure transformations operate on an RGBA raster buffer.
-3. **Browser shell** — upload, preview, persistence, and export.
+The render foundation is intentionally larger than a dithering clone. Planned higher-level capabilities include custom palette extraction and editing, masks, compositing and blend nodes, transforms and crops, curves, halftones and blue-noise screens, reusable subgraphs, presets, batch export, comparison views, histogram/scopes, and additional GPU kernels.
 
-The output node recursively evaluates the connected upstream graph, so the same UI can grow into branching, masks, compositing, palette nodes, WebGL/WebGPU kernels, and reusable subgraphs without replacing the editor model.
+The goal is to keep those features on the same local-first architecture rather than growing a server dependency.
 
-## Roadmap
+## Browser behavior
 
-The next useful additions are palette extraction / locking, image masks, blend/composite nodes, edge detection, halftone screens, blue-noise dithering, reusable presets, graph import/export, history snapshots, WebGPU acceleration, and an optional WASM image-processing backend.
+WebGPU is used when the browser exposes it and the graph benefits from it. The CPU-worker path remains the correctness fallback, so Graphic Studio remains functional when WebGPU is unavailable.
 
 ## License
 
