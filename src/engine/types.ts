@@ -11,9 +11,26 @@ export interface PipelineStage {
   data: StudioNodeData;
 }
 
+export interface GraphInput {
+  source: string;
+  port: string | null;
+}
+
+export interface GraphPlanNode {
+  id: string;
+  data: StudioNodeData;
+  inputs: GraphInput[];
+}
+
+export interface RenderGraphPlan {
+  outputId: string;
+  nodes: GraphPlanNode[];
+}
+
 export interface RenderPlan {
   stages: PipelineStage[];
   signature: string;
+  graph?: RenderGraphPlan;
 }
 
 export type RenderBackend = 'webgpu' | 'hybrid' | 'cpu-worker';

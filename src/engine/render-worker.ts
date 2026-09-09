@@ -2,6 +2,7 @@
 
 import {
   applyEffectCpu,
+  blendRaster,
   isGpuCompatible,
   makeDemoRaster,
   rasterToBitmap,
@@ -11,6 +12,7 @@ import {
 import type {
   EngineTelemetry,
   ExportOptions,
+  GraphPlanNode,
   PipelineStage,
   Raster,
   RenderPlan,
@@ -149,30 +151,40 @@ function shouldUseGpu(
   return group.length >= 3 && pixels >= 1_000_000;
 }
 
-async function executePlan(
+interface StageExecution {
+  raster: Raster;
+  token: string;
+  cacheHits: number;
+  gpuPasses: number;
+  usedGpu: boolean;
+  usedCpu: boolean;
+}
+
+async function executeStages(
   source: Raster,
-  plan: RenderPlan,
-  modeKey: string,
-): Promise<{ raster: Raster; backend: EngineTelemetry['backend']; cacheHits: number; gpuPasses: number }> {
+  stages: PipelineStage[],
+  startToken: string,
+  gpuAvailable: boolean,
+  terminal: boolean,
+): Promise<StageExecution> {
   let current = source;
-  let token = `source:${sourceRevision}:${modeKey}:${source.width}x${source.height}`;
+  let token = startToken;
   let cacheHits = 0;
   let gpuPasses = 0;
   let usedGpu = false;
   let usedCpu = false;
-  const gpuAvailable = !gpuDisabled && await gpu.available();
-
   let index = 0;
-  while (index < plan.stages.length) {
-    const stage = plan.stages[index];
-    if (gpuAvailable && isGpuCompatible(stage.data)) {
+
+  while (index < stages.length) {
+    const stage = stages[index];
+    if (gpuAvailable && !gpuDisabled && isGpuCompatible(stage.data)) {
       const group: PipelineStage[] = [];
       let cursor = index;
-      while (cursor < plan.stages.length && isGpuCompatible(plan.stages[cursor].data)) {
-        group.push(plan.stages[cursor]);
+      while (cursor < stages.length && isGpuCompatible(stages[cursor].data)) {
+        group.push(stages[cursor]);
         cursor += 1;
       }
-      if (shouldUseGpu(current, group, cursor === plan.stages.length)) {
+      if (shouldUseGpu(current, group, terminal && cursor === stages.length)) {
         const groupToken = `${token}|gpu:${group.map(stableStageSignature).join('>')}`;
         const cached = cache.get(groupToken);
         if (cached) {
@@ -213,10 +225,175 @@ async function executePlan(
     index += 1;
   }
 
-  const backend: EngineTelemetry['backend'] = usedGpu
-    ? usedCpu ? 'hybrid' : 'webgpu'
-    : 'cpu-worker';
-  return { raster: current, backend, cacheHits, gpuPasses };
+  return { raster: current, token, cacheHits, gpuPasses, usedGpu, usedCpu };
+}
+
+function backendFor(usedGpu: boolean, usedCpu: boolean): EngineTelemetry['backend'] {
+  return usedGpu ? (usedCpu ? 'hybrid' : 'webgpu') : 'cpu-worker';
+}
+
+async function executePlan(
+  source: Raster,
+  plan: RenderPlan,
+  modeKey: string,
+): Promise<{ raster: Raster; backend: EngineTelemetry['backend']; cacheHits: number; gpuPasses: number }> {
+  const gpuAvailable = !gpuDisabled && await gpu.available();
+  const sourceToken = `source:${sourceRevision}:${modeKey}:${source.width}x${source.height}`;
+  const executed = await executeStages(source, plan.stages, sourceToken, gpuAvailable, true);
+  return {
+    raster: executed.raster,
+    backend: backendFor(executed.usedGpu, executed.usedCpu),
+    cacheHits: executed.cacheHits,
+    gpuPasses: executed.gpuPasses,
+  };
+}
+
+interface GraphValue {
+  raster: Raster;
+  token: string;
+}
+
+async function executeGraph(
+  source: Raster,
+  plan: RenderPlan,
+  modeKey: string,
+): Promise<{ raster: Raster; backend: EngineTelemetry['backend']; cacheHits: number; gpuPasses: number }> {
+  const graph = plan.graph;
+  if (!graph) return executePlan(source, plan, modeKey);
+
+  const nodes = new Map(graph.nodes.map((node) => [node.id, node]));
+  const children = new Map<string, string[]>();
+  for (const node of graph.nodes) {
+    for (const input of node.inputs) {
+      const values = children.get(input.source) ?? [];
+      values.push(node.id);
+      children.set(input.source, values);
+    }
+  }
+
+  const gpuAvailable = !gpuDisabled && await gpu.available();
+  const sourceToken = `source:${sourceRevision}:${modeKey}:${source.width}x${source.height}`;
+  const memo = new Map<string, GraphValue>();
+  let cacheHits = 0;
+  let gpuPasses = 0;
+  let usedGpu = false;
+  let usedCpu = false;
+
+  const addExecution = (execution: StageExecution) => {
+    cacheHits += execution.cacheHits;
+    gpuPasses += execution.gpuPasses;
+    usedGpu ||= execution.usedGpu;
+    usedCpu ||= execution.usedCpu;
+  };
+
+  const evaluate = async (id: string): Promise<GraphValue> => {
+    const existing = memo.get(id);
+    if (existing) return existing;
+    const node = nodes.get(id);
+    if (!node) throw new Error(`Render graph node ${id} is missing.`);
+
+    if (node.data.kind === 'source') {
+      const value = { raster: source, token: sourceToken };
+      memo.set(id, value);
+      return value;
+    }
+
+    const primaryInput = node.inputs.find((input) => input.port === 'base') ?? node.inputs[0];
+    if (!primaryInput) throw new Error(`Render graph node ${id} has no input.`);
+
+    if (node.data.kind === 'output' || node.data.enabled === false) {
+      const value = await evaluate(primaryInput.source);
+      memo.set(id, value);
+      return value;
+    }
+
+    if (node.data.kind === 'blend') {
+      const layerInput = node.inputs.find((input) => input.port === 'blend');
+      if (!layerInput) throw new Error(`Blend node ${id} is missing its Blend input.`);
+      // The WebGPU engine reuses shared ping-pong buffers, so branch evaluation is
+      // intentionally serialized. Independent branch results are still memoized.
+      const base = await evaluate(primaryInput.source);
+      const layer = await evaluate(layerInput.source);
+      const stage: PipelineStage = { id: node.id, data: node.data };
+      const blendToken = `${base.token}|blend:${stableStageSignature(stage)}|layer:${layer.token}`;
+      const cached = cache.get(blendToken);
+      const preferGpu = gpuAvailable
+        && !gpuDisabled
+        && base.raster.width * base.raster.height >= 120_000;
+      let raster: Raster;
+      if (cached) {
+        raster = cached;
+        cacheHits += 1;
+        usedGpu ||= preferGpu;
+        usedCpu ||= !preferGpu;
+      } else if (preferGpu) {
+        try {
+          const rendered = await gpu.runBlend(base.raster, layer.raster, node.data);
+          raster = rendered.raster;
+          gpuPasses += rendered.passes;
+          usedGpu = true;
+          cache.set(blendToken, raster);
+        } catch (error) {
+          console.warn('Graphic Studio WebGPU blend fallback:', error);
+          gpuDisabled = true;
+          raster = blendRaster(base.raster, layer.raster, node.data);
+          usedCpu = true;
+          cache.set(blendToken, raster);
+        }
+      } else {
+        raster = blendRaster(base.raster, layer.raster, node.data);
+        usedCpu = true;
+        cache.set(blendToken, raster);
+      }
+      const value = { raster, token: blendToken };
+      memo.set(id, value);
+      return value;
+    }
+
+    const chain: PipelineStage[] = [];
+    let cursor: GraphPlanNode = node;
+    let baseId = primaryInput.source;
+    while (true) {
+      chain.unshift({ id: cursor.id, data: cursor.data });
+      const parentId = cursor.inputs[0]?.source;
+      if (!parentId) throw new Error(`Render graph node ${cursor.id} has no input.`);
+      const parent = nodes.get(parentId);
+      if (!parent) throw new Error(`Render graph node ${parentId} is missing.`);
+      const parentShared = (children.get(parentId)?.length ?? 0) > 1;
+      const boundary = parent.data.kind === 'source'
+        || parent.data.kind === 'blend'
+        || parent.data.kind === 'output'
+        || parent.data.enabled === false
+        || parentShared;
+      if (boundary) {
+        baseId = parentId;
+        break;
+      }
+      cursor = parent;
+    }
+
+    const base = await evaluate(baseId);
+    const terminal = (children.get(id) ?? []).includes(graph.outputId);
+    const execution = await executeStages(
+      base.raster,
+      chain,
+      base.token,
+      gpuAvailable,
+      terminal,
+    );
+    addExecution(execution);
+    const value = { raster: execution.raster, token: execution.token };
+    memo.set(id, value);
+    return value;
+  };
+
+  const result = await evaluate(graph.outputId);
+  return {
+    raster: result.raster,
+    backend: backendFor(usedGpu, usedCpu),
+    cacheHits,
+    gpuPasses,
+  };
 }
 
 async function renderRaster(
@@ -225,7 +402,7 @@ async function renderRaster(
   modeKey: string,
 ): Promise<{ raster: Raster; telemetry: EngineTelemetry }> {
   const started = performance.now();
-  const processed = await executePlan(source, plan, modeKey);
+  const processed = await executeGraph(source, plan, modeKey);
   const durationMs = Math.max(0.01, performance.now() - started);
   const effectivePixels = source.width * source.height * Math.max(1, plan.stages.length);
   return {

@@ -7,6 +7,7 @@ import {
   Grid3X3,
   Image as ImageIcon,
   ImagePlus,
+  Layers,
   Palette as PaletteIcon,
   Plus,
   ScanLine,
@@ -28,6 +29,7 @@ const kindIcon = {
   source: ImagePlus,
   adjust: SlidersHorizontal,
   curves: TrendingUp,
+  blend: Layers,
   transform: Crop,
   pixelate: Grid3X3,
   posterize: CircleDot,
@@ -221,9 +223,26 @@ export function StudioNode({ id, data, selected }: NodeProps<StudioFlowNode>) {
         data.enabled === false ? 'is-bypassed' : '',
       ].join(' ')}
     >
-      {data.kind !== 'source' && (
+      {data.kind === 'blend' ? (
+        <>
+          <Handle
+            id="base"
+            type="target"
+            position={Position.Left}
+            className="studio-handle blend-handle blend-handle--base"
+          />
+          <Handle
+            id="blend"
+            type="target"
+            position={Position.Left}
+            className="studio-handle blend-handle blend-handle--layer"
+          />
+          <span className="blend-port-label blend-port-label--base">A</span>
+          <span className="blend-port-label blend-port-label--layer">B</span>
+        </>
+      ) : data.kind !== 'source' ? (
         <Handle type="target" position={Position.Left} className="studio-handle" />
-      )}
+      ) : null}
 
       <header className="node-header">
         <span className="node-icon"><Icon size={14} /></span>
@@ -355,6 +374,45 @@ export function StudioNode({ id, data, selected }: NodeProps<StudioFlowNode>) {
               Reset
             </button>
           </div>
+        </div>
+      )}
+
+      {data.kind === 'blend' && (
+        <div className="node-body blend-body">
+          <div className="blend-input-key nodrag">
+            <span><i>A</i> Base</span>
+            <span><i>B</i> Blend layer</span>
+          </div>
+          <label className="node-select nodrag">
+            <span>Blend mode</span>
+            <select
+              value={data.blendMode ?? 'normal'}
+              onChange={(event) => commit({ blendMode: event.target.value as typeof data.blendMode })}
+            >
+              <option value="normal">Normal</option>
+              <option value="multiply">Multiply</option>
+              <option value="screen">Screen</option>
+              <option value="overlay">Overlay</option>
+              <option value="soft-light">Soft light</option>
+              <option value="hard-light">Hard light</option>
+              <option value="darken">Darken</option>
+              <option value="lighten">Lighten</option>
+              <option value="difference">Difference</option>
+              <option value="exclusion">Exclusion</option>
+              <option value="add">Add</option>
+              <option value="subtract">Subtract</option>
+            </select>
+          </label>
+          <RangeControl
+            label="Opacity"
+            value={Number(data.opacity ?? 100)}
+            min={0}
+            max={100}
+            unit="%"
+            onBegin={studio.checkpoint}
+            onChange={(opacity) => update({ opacity })}
+          />
+          <p className="blend-note">B is normalized to A's canvas when branch geometry differs.</p>
         </div>
       )}
 

@@ -1,4 +1,4 @@
-import type { StudioNodeData } from '../model';
+import type { BlendMode, StudioNodeData } from '../model';
 import { resolvePalette } from './imageEngine';
 import { BLUE_NOISE_32 } from './blue-noise';
 import type { PipelineStage, Raster } from './types';
@@ -393,6 +393,82 @@ function compilePass(pass: GpuPass): CompiledPass {
   return convolutionPass(pass);
 }
 
+const blendModeIds: Record<BlendMode, number> = {
+  normal: 0,
+  multiply: 1,
+  screen: 2,
+  overlay: 3,
+  'soft-light': 4,
+  'hard-light': 5,
+  darken: 6,
+  lighten: 7,
+  difference: 8,
+  exclusion: 9,
+  add: 10,
+  subtract: 11,
+};
+
+const BLEND_WGSL = `
+struct BlendMeta {
+  width: u32,
+  height: u32,
+  layerWidth: u32,
+  layerHeight: u32,
+};
+
+@group(0) @binding(0) var<storage, read> basePixels: array<u32>;
+@group(0) @binding(1) var<storage, read> layerPixels: array<u32>;
+@group(0) @binding(2) var<storage, read_write> targetPixels: array<u32>;
+@group(0) @binding(3) var<uniform> blendMeta: BlendMeta;
+@group(0) @binding(4) var<uniform> params: vec4<f32>;
+
+fn unpack(value: u32) -> vec4<f32> {
+  return vec4<f32>(
+    f32(value & 255u), f32((value >> 8u) & 255u),
+    f32((value >> 16u) & 255u), f32((value >> 24u) & 255u)
+  ) / 255.0;
+}
+
+fn pack(value: vec4<f32>) -> u32 {
+  let v = vec4<u32>(clamp(round(value * 255.0), vec4<f32>(0.0), vec4<f32>(255.0)));
+  return v.r | (v.g << 8u) | (v.b << 16u) | (v.a << 24u);
+}
+
+fn blendRgb(base: vec3<f32>, layer: vec3<f32>, mode: u32) -> vec3<f32> {
+  switch mode {
+    case 1u: { return base * layer; }
+    case 2u: { return 1.0 - (1.0 - base) * (1.0 - layer); }
+    case 3u: { return select(2.0 * base * layer, 1.0 - 2.0 * (1.0 - base) * (1.0 - layer), base >= vec3<f32>(0.5)); }
+    case 4u: { return (1.0 - 2.0 * layer) * base * base + 2.0 * layer * base; }
+    case 5u: { return select(2.0 * base * layer, 1.0 - 2.0 * (1.0 - base) * (1.0 - layer), layer >= vec3<f32>(0.5)); }
+    case 6u: { return min(base, layer); }
+    case 7u: { return max(base, layer); }
+    case 8u: { return abs(base - layer); }
+    case 9u: { return base + layer - 2.0 * base * layer; }
+    case 10u: { return min(vec3<f32>(1.0), base + layer); }
+    case 11u: { return max(vec3<f32>(0.0), base - layer); }
+    default: { return layer; }
+  }
+}
+
+@compute @workgroup_size(8, 8)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+  if (gid.x >= blendMeta.width || gid.y >= blendMeta.height) { return; }
+  let layerX = min(blendMeta.layerWidth - 1u, u32((f32(gid.x) + 0.5) / f32(blendMeta.width) * f32(blendMeta.layerWidth)));
+  let layerY = min(blendMeta.layerHeight - 1u, u32((f32(gid.y) + 0.5) / f32(blendMeta.height) * f32(blendMeta.layerHeight)));
+  let baseIndex = gid.y * blendMeta.width + gid.x;
+  let layerIndex = layerY * blendMeta.layerWidth + layerX;
+  let base = unpack(basePixels[baseIndex]);
+  let layer = unpack(layerPixels[layerIndex]);
+  let layerAlpha = layer.a * clamp(params.y, 0.0, 1.0);
+  let outputAlpha = layerAlpha + base.a * (1.0 - layerAlpha);
+  let mixed = clamp(blendRgb(base.rgb, layer.rgb, u32(round(params.x))), vec3<f32>(0.0), vec3<f32>(1.0));
+  let premultiplied = mixed * layerAlpha + base.rgb * base.a * (1.0 - layerAlpha);
+  let outputRgb = select(vec3<f32>(0.0), premultiplied / outputAlpha, outputAlpha > 0.00000001);
+  targetPixels[baseIndex] = pack(vec4<f32>(outputRgb, outputAlpha));
+}
+`;
+
 function nextCapacity(bytes: number): number {
   const chunk = 4 * 1024 * 1024;
   return Math.ceil(bytes / chunk) * chunk;
@@ -474,6 +550,84 @@ export class WebGpuEngine {
     })();
     this.pipelineCache.set(compiled.key, pipeline);
     return pipeline;
+  }
+
+  async runBlend(
+    base: Raster,
+    layer: Raster,
+    node: StudioNodeData,
+  ): Promise<{ raster: Raster; passes: number }> {
+    const device = await this.getDevice();
+    if (!device) throw new Error('WebGPU is unavailable.');
+
+    const baseBytes = base.data.byteLength;
+    const layerBytes = layer.data.byteLength;
+    this.ensureBuffers(device, Math.max(baseBytes, layerBytes));
+    const baseBuffer = this.bufferA!;
+    const layerBuffer = this.bufferB!;
+    const readback = this.readback!;
+    device.queue.writeBuffer(
+      baseBuffer, 0, base.data.buffer, base.data.byteOffset, baseBytes,
+    );
+    device.queue.writeBuffer(
+      layerBuffer, 0, layer.data.buffer, layer.data.byteOffset, layerBytes,
+    );
+
+    const outputBuffer = device.createBuffer({
+      size: baseBytes,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
+    });
+    const metaBuffer = device.createBuffer({
+      size: 16,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+    device.queue.writeBuffer(
+      metaBuffer,
+      0,
+      new Uint32Array([base.width, base.height, layer.width, layer.height]),
+    );
+    const mode = blendModeIds[(node.blendMode ?? 'normal') as BlendMode] ?? 0;
+    const opacity = Math.max(0, Math.min(1, Number(node.opacity ?? 100) / 100));
+    const params = new Float32Array([mode, opacity, 0, 0]);
+    const parameterBuffer = device.createBuffer({
+      size: 16,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+    device.queue.writeBuffer(parameterBuffer, 0, params);
+    const compiled: CompiledPass = {
+      key: 'blend-two-input-v1',
+      shader: BLEND_WGSL,
+      params,
+    };
+    const pipeline = await this.getPipeline(device, compiled);
+    const bindGroup = device.createBindGroup({
+      layout: pipeline.getBindGroupLayout(0),
+      entries: [
+        { binding: 0, resource: { buffer: baseBuffer } },
+        { binding: 1, resource: { buffer: layerBuffer } },
+        { binding: 2, resource: { buffer: outputBuffer } },
+        { binding: 3, resource: { buffer: metaBuffer } },
+        { binding: 4, resource: { buffer: parameterBuffer } },
+      ],
+    });
+
+    const encoder = device.createCommandEncoder({ label: 'Graphic Studio blend' });
+    const compute = encoder.beginComputePass();
+    compute.setPipeline(pipeline);
+    compute.setBindGroup(0, bindGroup);
+    compute.dispatchWorkgroups(Math.ceil(base.width / 8), Math.ceil(base.height / 8));
+    compute.end();
+    encoder.copyBufferToBuffer(outputBuffer, 0, readback, 0, baseBytes);
+    device.queue.submit([encoder.finish()]);
+    await readback.mapAsync(GPUMapMode.READ, 0, baseBytes);
+    const mapped = new Uint8Array(readback.getMappedRange(0, baseBytes));
+    const data = new Uint8ClampedArray(baseBytes);
+    data.set(mapped);
+    readback.unmap();
+    outputBuffer.destroy();
+    metaBuffer.destroy();
+    parameterBuffer.destroy();
+    return { raster: { width: base.width, height: base.height, data }, passes: 1 };
   }
 
   async run(
