@@ -15,7 +15,13 @@ function areaFor(values: number[], maxLog: number): string {
   return points ? `0,96 ${points} 255,96` : '';
 }
 
-export function HistogramScope({ histogram }: { histogram: HistogramData | null }) {
+export function HistogramScope({
+  histogram,
+  compact = false,
+}: {
+  histogram: HistogramData | null;
+  compact?: boolean;
+}) {
   const values = histogram
     ? [...histogram.red, ...histogram.green, ...histogram.blue, ...histogram.luminance]
     : [];
@@ -23,10 +29,12 @@ export function HistogramScope({ histogram }: { histogram: HistogramData | null 
 
   return (
     <div className="histogram-scope">
-      <div className="histogram-scope__title">
-        <strong>Histogram</strong>
-        <span>{histogram ? `${histogram.samples.toLocaleString()} samples` : 'Waiting for frame'}</span>
-      </div>
+      {!compact && (
+        <div className="histogram-scope__title">
+          <strong>Histogram</strong>
+          <span>{histogram ? `${histogram.samples.toLocaleString()} samples` : 'Waiting for frame'}</span>
+        </div>
+      )}
       <svg viewBox="0 0 256 96" preserveAspectRatio="none" aria-label="RGB and luminance histogram">
         {[64, 128, 192].map((x) => (
           <line key={`x-${x}`} x1={x} y1="0" x2={x} y2="96" className="histogram-grid" />

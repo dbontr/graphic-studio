@@ -34,7 +34,7 @@ No uploaded image needs to leave the device.
 - Workflow JSON import / export
 - Local workflow persistence
 - Last source image persistence in IndexedDB
-- Runtime performance panel with backend, compute time, throughput, cache hits, GPU pass counts, and a live RGB/luminance histogram
+- Runtime performance panel with backend, compute time, throughput, cache hits, GPU pass counts, and live histogram / waveform / vectorscope analysis
 
 ### Processing nodes
 
@@ -45,7 +45,7 @@ No uploaded image needs to leave the device.
 - Posterize
 - Palette mapping: Game Boy, PICO-8, CGA, monochrome, grayscale, editable custom palettes, source palette extraction
 - Convolution: blur, sharpen, edge detection, emboss, adjustable strength
-- Dither: 24 modes spanning 14 error-diffusion kernels, Bayer and clustered-dot matrices, procedural dot/line/crosshatch screens, CMYK halftone, threshold, and deterministic noise
+- Dither: 25 modes spanning 14 error-diffusion kernels, Bayer matrices, a progressive 32×32 blue-noise threshold map, clustered-dot screens, procedural dot/line/crosshatch screens, CMYK halftone, threshold, and deterministic noise
 - Error-diffusion controls: serpentine or raster scan plus 0–160% error strength
 - Pattern controls: screen size and angle with GPU acceleration where applicable
 
@@ -63,7 +63,7 @@ The backend currently accelerates:
 - Palette mapping
 - Pixelation
 - 3×3 convolution
-- Bayer and clustered-dot ordered dithering
+- Bayer, progressive blue-noise, and clustered-dot ordered dithering
 - Procedural halftone dots, line screens, and crosshatch
 - Four-screen CMYK halftone at standard C/M/Y/K angles
 - Threshold dithering
@@ -81,7 +81,7 @@ The engine uses an adaptive hybrid policy: a GPU round trip is avoided for tiny 
 
 A source-revision + stage-signature cache stores reusable intermediate rasters with a bounded memory budget. Moving nodes does not rerender the image because layout coordinates are not part of the semantic render plan. During rapid slider edits, the main thread debounces changes while the render client keeps at most one active render and one newest queued render.
 
-Preview decoding is capped for interactivity, while export re-decodes the original source at a much higher resolution budget. Live frames are transferred from the render worker as `ImageBitmap` objects and drawn directly to the preview canvas, so interactive rendering pays no image-encoding or Blob-URL churn. The worker also builds a bounded-sample RGB/luminance histogram from the final preview raster, avoiding any main-thread pixel readback. PNG, JPEG, or WebP encoding only happens on explicit export; JPEG exports flatten alpha against the selected matte while PNG and WebP preserve transparency. This keeps editing responsive without permanently throwing away source resolution.
+Preview decoding is capped for interactivity, while export re-decodes the original source at a much higher resolution budget. Live frames are transferred from the render worker as `ImageBitmap` objects and drawn directly to the preview canvas, so interactive rendering pays no image-encoding or Blob-URL churn. A single bounded worker-side analysis pass builds the RGB/luminance histogram, 128×64 luminance waveform, and 96×96 Cb/Cr vectorscope with at most 250,000 samples, avoiding any main-thread pixel readback. PNG, JPEG, or WebP encoding only happens on explicit export; JPEG exports flatten alpha against the selected matte while PNG and WebP preserve transparency. This keeps editing responsive without permanently throwing away source resolution.
 
 ## Stack
 
@@ -112,7 +112,7 @@ That command runs linting, the engine test suite, TypeScript, and the production
 
 ## Direction
 
-The render foundation is intentionally larger than a dithering clone. Planned higher-level capabilities include masks, compositing and blend nodes, blue-noise screens, reusable subgraphs, presets, batch and vector export, comparison views, waveform/vectorscope analysis, vector/text overlays, and additional GPU kernels.
+The render foundation is intentionally larger than a dithering clone. Planned higher-level capabilities include masks, compositing and blend nodes, reusable subgraphs, presets, batch and vector export, comparison views, vector/text overlays, and additional GPU kernels.
 
 The goal is to keep those features on the same local-first architecture rather than growing a server dependency.
 

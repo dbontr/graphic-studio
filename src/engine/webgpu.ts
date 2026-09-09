@@ -1,5 +1,6 @@
 import type { StudioNodeData } from '../model';
 import { resolvePalette } from './imageEngine';
+import { BLUE_NOISE_32 } from './blue-noise';
 import type { PipelineStage, Raster } from './types';
 
 type GpuPass =
@@ -90,6 +91,12 @@ fn dotScreen(x: f32, y: f32, angle: f32, scale: f32) -> f32 {
   let uy = abs(fract(ry) - 0.5) * 2.0;
   return min(1.0, length(vec2<f32>(ux, uy)) / 1.41421356237);
 }
+`;
+
+const BLUE_NOISE_WGSL = `
+const BLUE_NOISE32 = array<f32, 1024>(
+  ${BLUE_NOISE_32.map((value) => `${value}.0`).join(', ')}
+);
 `;
 
 const pointKinds = new Set(['adjust', 'curves', 'posterize', 'palette', 'dither']);
@@ -277,6 +284,8 @@ function pointPass(pass: Extract<GpuPass, { kind: 'point' }>): CompiledPass {
         thresholdCode += `\n  localThreshold${index} = clamp(((BAYER4[(gid.y % 4u) * 4u + (gid.x % 4u)] + 0.5) / 16.0) * 255.0 + params[${p}].x - 128.0, 0.0, 255.0);`;
       } else if (algorithm === 'bayer-8') {
         thresholdCode += `\n  localThreshold${index} = clamp(((BAYER8[(gid.y % 8u) * 8u + (gid.x % 8u)] + 0.5) / 64.0) * 255.0 + params[${p}].x - 128.0, 0.0, 255.0);`;
+      } else if (algorithm === 'blue-noise-32') {
+        thresholdCode += `\n  localThreshold${index} = clamp(((BLUE_NOISE32[(gid.y % 32u) * 32u + (gid.x % 32u)] + 0.5) / 1024.0) * 255.0 + params[${p}].x - 128.0, 0.0, 255.0);`;
       } else if (algorithm === 'clustered-4') {
         thresholdCode += `\n  localThreshold${index} = clamp(((CLUSTER4[(gid.y % 4u) * 4u + (gid.x % 4u)] + 0.5) / 16.0) * 255.0 + params[${p}].x - 128.0, 0.0, 255.0);`;
       } else if (algorithm === 'noise') {
@@ -303,7 +312,11 @@ function pointPass(pass: Extract<GpuPass, { kind: 'point' }>): CompiledPass {
 
   const paramCount = Math.max(1, paramIndex);
   while (params.length < paramCount * 4) params.push(0);
-  const shader = `${COMMON_WGSL}\n${BAYER_WGSL}\n${declarations.join('\n')}\n@group(0) @binding(3) var<uniform> params: array<vec4<f32>, ${paramCount}>;\n\n@compute @workgroup_size(8, 8)\nfn main(@builtin(global_invocation_id) gid: vec3<u32>) {\n  if (gid.x >= renderMeta.width || gid.y >= renderMeta.height) { return; }\n  let index = gid.y * renderMeta.width + gid.x;\n  var color = unpackRgba(sourcePixels[index]);\n${body.join('\n')}\n  targetPixels[index] = packRgba(color);\n}\n`;
+  const usesBlueNoise = pass.stages.some((stage) =>
+    stage.data.kind === 'dither' && stage.data.algorithm === 'blue-noise-32',
+  );
+  const optionalNoise = usesBlueNoise ? BLUE_NOISE_WGSL : '';
+  const shader = `${COMMON_WGSL}\n${BAYER_WGSL}\n${optionalNoise}\n${declarations.join('\n')}\n@group(0) @binding(3) var<uniform> params: array<vec4<f32>, ${paramCount}>;\n\n@compute @workgroup_size(8, 8)\nfn main(@builtin(global_invocation_id) gid: vec3<u32>) {\n  if (gid.x >= renderMeta.width || gid.y >= renderMeta.height) { return; }\n  let index = gid.y * renderMeta.width + gid.x;\n  var color = unpackRgba(sourcePixels[index]);\n${body.join('\n')}\n  targetPixels[index] = packRgba(color);\n}\n`;
   return { key: `point:${keyParts.join('>')}`, shader, params: new Float32Array(params) };
 }
 function pixelatePass(pass: Extract<GpuPass, { kind: 'pixelate' }>): CompiledPass {

@@ -9,6 +9,7 @@ import type {
 import type { ExportOptions, PipelineStage, Raster, RenderPlan } from './types';
 import { transformRaster } from './transform';
 import { errorDiffusion } from './diffusion';
+import { BLUE_NOISE_32, BLUE_NOISE_SIDE } from './blue-noise';
 
 export type { Raster } from './types';
 
@@ -444,7 +445,7 @@ const clustered4 = [
 
 function orderedDither(
   raster: Raster,
-  matrix: number[],
+  matrix: readonly number[],
   side: number,
   threshold: number,
   monochrome: boolean,
@@ -631,6 +632,9 @@ export function ditherRaster(
   if (algorithm === 'bayer-2') return orderedDither(raster, bayer2, 2, threshold, monochrome);
   if (algorithm === 'bayer-4') return orderedDither(raster, bayer4, 4, threshold, monochrome);
   if (algorithm === 'bayer-8') return orderedDither(raster, bayer8, 8, threshold, monochrome);
+  if (algorithm === 'blue-noise-32') {
+    return orderedDither(raster, BLUE_NOISE_32, BLUE_NOISE_SIDE, threshold, monochrome);
+  }
   if (algorithm === 'clustered-4') return orderedDither(raster, clustered4, 4, threshold, monochrome);
   if (algorithm === 'halftone-dot' || algorithm === 'halftone-line' || algorithm === 'crosshatch') {
     return proceduralPatternDither(raster, node, algorithm);
@@ -653,6 +657,7 @@ export function isGpuCompatible(node: StudioNodeData): boolean {
     return node.algorithm === 'bayer-2'
       || node.algorithm === 'bayer-4'
       || node.algorithm === 'bayer-8'
+      || node.algorithm === 'blue-noise-32'
       || node.algorithm === 'clustered-4'
       || node.algorithm === 'halftone-dot'
       || node.algorithm === 'halftone-line'

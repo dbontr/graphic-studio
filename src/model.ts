@@ -33,6 +33,7 @@ export type DitherAlgorithm =
   | 'bayer-2'
   | 'bayer-4'
   | 'bayer-8'
+  | 'blue-noise-32'
   | 'clustered-4'
   | 'halftone-dot'
   | 'halftone-line'

@@ -11,7 +11,6 @@ import {
 import type {
   EngineTelemetry,
   ExportOptions,
-  HistogramData,
   PipelineStage,
   Raster,
   RenderPlan,
@@ -21,6 +20,7 @@ import type {
 } from './types';
 import { WebGpuEngine } from './webgpu';
 import { extractPalette } from './palette-extraction';
+import { computeScopes } from './scopes';
 
 type Request =
   | { id: number; type: 'capabilities' }
@@ -243,34 +243,12 @@ async function renderRaster(
   };
 }
 
-function computeHistogram(raster: Raster): HistogramData {
-  const red = new Array<number>(256).fill(0);
-  const green = new Array<number>(256).fill(0);
-  const blue = new Array<number>(256).fill(0);
-  const luminance = new Array<number>(256).fill(0);
-  const pixels = raster.width * raster.height;
-  const step = Math.max(1, Math.ceil(pixels / 250_000));
-  let samples = 0;
-  for (let pixel = 0; pixel < pixels; pixel += step) {
-    const index = pixel * 4;
-    const r = raster.data[index];
-    const g = raster.data[index + 1];
-    const b = raster.data[index + 2];
-    red[r] += 1;
-    green[g] += 1;
-    blue[b] += 1;
-    luminance[Math.round(0.2126 * r + 0.7152 * g + 0.0722 * b)] += 1;
-    samples += 1;
-  }
-  return { red, green, blue, luminance, samples };
-}
-
 async function renderFrame(source: Raster, plan: RenderPlan): Promise<RenderedFrame> {
   const rendered = await renderRaster(source, plan, 'preview');
   return {
     bitmap: rasterToBitmap(rendered.raster),
     telemetry: rendered.telemetry,
-    histogram: computeHistogram(rendered.raster),
+    scopes: computeScopes(rendered.raster),
   };
 }
 
