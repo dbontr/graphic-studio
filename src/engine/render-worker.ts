@@ -10,6 +10,7 @@ import {
 } from './imageEngine';
 import type {
   EngineTelemetry,
+  ExportOptions,
   PipelineStage,
   Raster,
   RenderPlan,
@@ -25,7 +26,7 @@ type Request =
   | { id: number; type: 'load-file'; file: File }
   | { id: number; type: 'extract-palette'; count: number }
   | { id: number; type: 'render'; plan: RenderPlan }
-  | { id: number; type: 'export'; plan: RenderPlan };
+  | { id: number; type: 'export'; plan: RenderPlan; options: ExportOptions };
 
 type Response =
   | { id: number; ok: true; type: 'capabilities'; webgpu: boolean }
@@ -246,9 +247,16 @@ async function renderFrame(source: Raster, plan: RenderPlan): Promise<RenderedFr
   return { bitmap: rasterToBitmap(rendered.raster), telemetry: rendered.telemetry };
 }
 
-async function renderImage(source: Raster, plan: RenderPlan): Promise<RenderedImage> {
+async function renderImage(
+  source: Raster,
+  plan: RenderPlan,
+  options: ExportOptions,
+): Promise<RenderedImage> {
   const rendered = await renderRaster(source, plan, 'export');
-  return { blob: await rasterToBlob(rendered.raster), telemetry: rendered.telemetry };
+  return {
+    blob: await rasterToBlob(rendered.raster, options),
+    telemetry: rendered.telemetry,
+  };
 }
 
 async function handle(request: Request): Promise<Response> {
@@ -306,7 +314,7 @@ async function handle(request: Request): Promise<Response> {
     id: request.id,
     ok: true,
     type: 'export',
-    image: await renderImage(source, request.plan),
+    image: await renderImage(source, request.plan, request.options),
   };
 }
 

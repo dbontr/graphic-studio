@@ -18,6 +18,13 @@ export interface RenderPlan {
 
 export type RenderBackend = 'webgpu' | 'hybrid' | 'cpu-worker';
 export type RenderMode = 'preview' | 'export';
+export type ExportFormat = 'png' | 'jpeg' | 'webp';
+
+export interface ExportOptions {
+  format: ExportFormat;
+  quality: number;
+  matte: string;
+}
 
 export interface EngineTelemetry {
   backend: RenderBackend;

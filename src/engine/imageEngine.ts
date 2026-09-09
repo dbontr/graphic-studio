@@ -6,7 +6,7 @@ import type {
   StudioFlowNode,
   StudioNodeData,
 } from '../model';
-import type { PipelineStage, Raster, RenderPlan } from './types';
+import type { ExportOptions, PipelineStage, Raster, RenderPlan } from './types';
 import { transformRaster } from './transform';
 import { errorDiffusion } from './diffusion';
 
@@ -52,12 +52,36 @@ function rasterToCanvas(raster: Raster): OffscreenCanvas {
   return canvas;
 }
 
+function flattenRaster(raster: Raster, matte: string): Raster {
+  const [mr, mg, mb] = parseHexColor(matte) ?? [255, 255, 255];
+  const data = new Uint8ClampedArray(raster.data.length);
+  for (let index = 0; index < raster.data.length; index += 4) {
+    const alpha = raster.data[index + 3] / 255;
+    const inverse = 1 - alpha;
+    data[index] = clampByte(raster.data[index] * alpha + mr * inverse);
+    data[index + 1] = clampByte(raster.data[index + 1] * alpha + mg * inverse);
+    data[index + 2] = clampByte(raster.data[index + 2] * alpha + mb * inverse);
+    data[index + 3] = 255;
+  }
+  return { width: raster.width, height: raster.height, data };
+}
+
 export function rasterToBitmap(raster: Raster): ImageBitmap {
   return rasterToCanvas(raster).transferToImageBitmap();
 }
 
-export async function rasterToBlob(raster: Raster): Promise<Blob> {
-  return rasterToCanvas(raster).convertToBlob({ type: 'image/png' });
+export async function rasterToBlob(
+  raster: Raster,
+  options: ExportOptions = { format: 'png', quality: 0.92, matte: '#ffffff' },
+): Promise<Blob> {
+  const canvas = rasterToCanvas(
+    options.format === 'jpeg' ? flattenRaster(raster, options.matte) : raster,
+  );
+  const type = options.format === 'png' ? 'image/png' : `image/${options.format}`;
+  return canvas.convertToBlob({
+    type,
+    quality: options.format === 'png' ? undefined : clamp(options.quality, 0.01, 1),
+  });
 }
 
 export function stableStageSignature(stage: PipelineStage): string {
