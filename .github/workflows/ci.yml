@@ -27,7 +27,7 @@ jobs:
       - name: Quality gate
         run: npm run check
       - name: Install browser smoke dependency
-        run: npm install --no-save --package-lock=false playwright@1.55.0
+        run: npm install --no-save --package-lock=false --no-audit playwright@1.55.0
       - name: Mask browser smoke
         shell: bash
         run: |
