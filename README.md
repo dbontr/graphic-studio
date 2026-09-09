@@ -43,7 +43,9 @@ No uploaded image needs to leave the device.
 - Posterize
 - Palette mapping: Game Boy, PICO-8, CGA, monochrome, grayscale, editable custom palettes, source palette extraction
 - Convolution: blur, sharpen, edge detection, emboss, adjustable strength
-- Dither: Floyd–Steinberg, Atkinson, Burkes, Sierra Lite, Bayer 2×2 / 4×4 / 8×8, threshold, deterministic noise
+- Dither: 24 modes spanning 14 error-diffusion kernels, Bayer and clustered-dot matrices, procedural dot/line/crosshatch screens, CMYK halftone, threshold, and deterministic noise
+- Error-diffusion controls: serpentine or raster scan plus 0–160% error strength
+- Pattern controls: screen size and angle with GPU acceleration where applicable
 
 ## Render engine
 
@@ -58,7 +60,9 @@ The backend currently accelerates:
 - Palette mapping
 - Pixelation
 - 3×3 convolution
-- Bayer dithering
+- Bayer and clustered-dot ordered dithering
+- Procedural halftone dots, line screens, and crosshatch
+- Four-screen CMYK halftone at standard C/M/Y/K angles
 - Threshold dithering
 - Noise dithering
 
@@ -66,7 +70,7 @@ GPU buffers are reused between renders, compute pipelines are cached, compatible
 
 ### CPU-worker path
 
-Algorithms with strong serial dependencies are intentionally kept on the worker CPU instead of being forced onto an unsuitable GPU implementation. Error diffusion uses rotating `Float32Array` error rows, avoiding a full-frame floating-point working image and dramatically reducing temporary memory.
+Algorithms with strong serial dependencies are intentionally kept on the worker CPU instead of being forced onto an unsuitable GPU implementation. Fourteen error-diffusion kernels share one bounded-row engine with optional serpentine scanning and adjustable error strength. It allocates only the forward rows required by each kernel—up to four for Stevenson–Arce—instead of a full-frame floating-point working image.
 
 The engine uses an adaptive hybrid policy: a GPU round trip is avoided for tiny or cheap GPU prefixes when a sequential CPU stage immediately follows, while all-GPU pipelines and expensive spatial kernels can stay on WebGPU.
 
@@ -105,7 +109,7 @@ That command runs linting, the engine test suite, TypeScript, and the production
 
 ## Direction
 
-The render foundation is intentionally larger than a dithering clone. Planned higher-level capabilities include masks, compositing and blend nodes, curves, halftones and blue-noise screens, reusable subgraphs, presets, batch export, comparison views, histogram/scopes, vector/text overlays, and additional GPU kernels.
+The render foundation is intentionally larger than a dithering clone. Planned higher-level capabilities include masks, compositing and blend nodes, curves, blue-noise screens, reusable subgraphs, presets, batch and vector export, comparison views, histogram/scopes, vector/text overlays, and additional GPU kernels.
 
 The goal is to keep those features on the same local-first architecture rather than growing a server dependency.
 

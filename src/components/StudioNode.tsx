@@ -16,7 +16,11 @@ import {
 } from 'lucide-react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
 import { useEffect, useRef } from 'react';
-import type { StudioFlowNode } from '../model';
+import {
+  ERROR_DIFFUSION_ALGORITHMS,
+  type ErrorDiffusionAlgorithm,
+  type StudioFlowNode,
+} from '../model';
 import { useStudio } from '../studio-context';
 
 const kindIcon = {
@@ -101,6 +105,14 @@ export function StudioNode({ id, data, selected }: NodeProps<StudioFlowNode>) {
   const customPalette = data.customPalette?.length
     ? data.customPalette.slice(0, 16)
     : ['#111111', '#f4f1ea'];
+  const selectedAlgorithm = data.algorithm ?? 'floyd-steinberg';
+  const isDiffusion = ERROR_DIFFUSION_ALGORITHMS.has(
+    selectedAlgorithm as ErrorDiffusionAlgorithm,
+  );
+  const isProceduralPattern = selectedAlgorithm === 'halftone-dot'
+    || selectedAlgorithm === 'halftone-line'
+    || selectedAlgorithm === 'crosshatch';
+  const usesPatternScale = isProceduralPattern || selectedAlgorithm === 'cmyk-halftone';
 
   return (
     <section
@@ -447,14 +459,29 @@ export function StudioNode({ id, data, selected }: NodeProps<StudioFlowNode>) {
             >
               <optgroup label="Error diffusion · CPU worker">
                 <option value="floyd-steinberg">Floyd–Steinberg</option>
+                <option value="false-floyd-steinberg">False Floyd–Steinberg</option>
                 <option value="atkinson">Atkinson</option>
+                <option value="jarvis-judice-ninke">Jarvis–Judice–Ninke</option>
+                <option value="stucki">Stucki</option>
                 <option value="burkes">Burkes</option>
+                <option value="sierra">Sierra 3</option>
+                <option value="two-row-sierra">Two-row Sierra</option>
                 <option value="sierra-lite">Sierra Lite</option>
+                <option value="stevenson-arce">Stevenson–Arce</option>
+                <option value="fan">Fan</option>
+                <option value="shiau-fan">Shiau–Fan</option>
+                <option value="shiau-fan-2">Shiau–Fan 2</option>
+                <option value="simple-2d">Simple 2D</option>
               </optgroup>
-              <optgroup label="Parallel · WebGPU">
+              <optgroup label="Ordered + pattern · WebGPU">
                 <option value="bayer-2">Bayer 2×2</option>
                 <option value="bayer-4">Bayer 4×4</option>
                 <option value="bayer-8">Bayer 8×8</option>
+                <option value="clustered-4">Clustered dot 4×4</option>
+                <option value="halftone-dot">Halftone dots</option>
+                <option value="halftone-line">Halftone lines</option>
+                <option value="crosshatch">Crosshatch</option>
+                <option value="cmyk-halftone">CMYK halftone</option>
                 <option value="noise">Noise</option>
                 <option value="threshold">Threshold</option>
               </optgroup>
@@ -468,6 +495,57 @@ export function StudioNode({ id, data, selected }: NodeProps<StudioFlowNode>) {
             onBegin={studio.checkpoint}
             onChange={(threshold) => update({ threshold })}
           />
+          {isDiffusion && (
+            <>
+              <RangeControl
+                label="Error strength"
+                value={Number(data.diffusionStrength ?? 100)}
+                min={0}
+                max={160}
+                unit="%"
+                onBegin={studio.checkpoint}
+                onChange={(diffusionStrength) => update({ diffusionStrength })}
+              />
+              <div className="segmented nodrag dither-scan-mode">
+                <button
+                  className={data.serpentine !== false ? 'active' : ''}
+                  type="button"
+                  onClick={() => commit({ serpentine: true })}
+                >
+                  Serpentine
+                </button>
+                <button
+                  className={data.serpentine === false ? 'active' : ''}
+                  type="button"
+                  onClick={() => commit({ serpentine: false })}
+                >
+                  Raster
+                </button>
+              </div>
+            </>
+          )}
+          {usesPatternScale && (
+            <RangeControl
+              label="Pattern size"
+              value={Number(data.patternScale ?? 8)}
+              min={2}
+              max={48}
+              unit="px"
+              onBegin={studio.checkpoint}
+              onChange={(patternScale) => update({ patternScale })}
+            />
+          )}
+          {isProceduralPattern && (
+            <RangeControl
+              label="Angle"
+              value={Number(data.angle ?? 45)}
+              min={-90}
+              max={90}
+              unit="°"
+              onBegin={studio.checkpoint}
+              onChange={(angle) => update({ angle })}
+            />
+          )}
           {data.algorithm === 'noise' && (
             <RangeControl
               label="Seed"
