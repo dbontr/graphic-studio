@@ -63,7 +63,7 @@ jobs:
       - name: Install
         run: npm ci
       - name: Install browser
-        run: npx playwright install --with-deps chromium
+        run: npx playwright install chromium
       - name: Smoke deployed site
         shell: bash
         env:
