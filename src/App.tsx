@@ -41,7 +41,7 @@ import {
   useState,
 } from 'react';
 import { ExportPanel } from './components/ExportPanel';
-import { HistogramScope } from './components/HistogramScope';
+import { ScopeViewer } from './components/ScopeViewer';
 import { StudioNode } from './components/StudioNode';
 import { compilePipeline } from './engine/imageEngine';
 import { RenderEngineClient } from './engine/render-client';
@@ -50,7 +50,7 @@ import type {
   EngineTelemetry,
   ExportFormat,
   ExportOptions,
-  HistogramData,
+  FrameScopes,
   SourceMeta,
 } from './engine/types';
 import {
@@ -140,7 +140,7 @@ const palette = [
   { kind: 'adjust' as const, label: 'Color + tone', icon: SlidersHorizontal, hint: 'Exposure, gamma, temperature' },
   { kind: 'curves' as const, label: 'Curves', icon: TrendingUp, hint: 'Master + RGB tone curves' },
   { kind: 'transform' as const, label: 'Transform', icon: Crop, hint: 'Crop, rotate, flip, resize' },
-  { kind: 'dither' as const, label: 'Dither', icon: Sparkles, hint: '24 algorithms + screens' },
+  { kind: 'dither' as const, label: 'Dither', icon: Sparkles, hint: '25 algorithms + screens' },
   { kind: 'palette' as const, label: 'Palette map', icon: PaletteIcon, hint: 'Retro + grayscale palettes' },
   { kind: 'convolution' as const, label: 'Convolution', icon: ScanLine, hint: 'Blur, sharpen, edge, emboss' },
   { kind: 'pixelate' as const, label: 'Pixelate', icon: Grid3X3, hint: 'Nearest block sampling' },
@@ -186,7 +186,7 @@ export default function App() {
   const [exportFileName, setExportFileName] = useState('graphic-studio-output');
   const [outputBitmap, setOutputBitmap] = useState<ImageBitmap | null>(null);
   const [telemetry, setTelemetry] = useState<EngineTelemetry | null>(null);
-  const [histogram, setHistogram] = useState<HistogramData | null>(null);
+  const [scopes, setScopes] = useState<FrameScopes | null>(null);
   const [sourceMeta, setSourceMeta] = useState<SourceMeta>({
     width: 960,
     height: 720,
@@ -285,7 +285,7 @@ export default function App() {
           outputBitmapRef.current = frame.bitmap;
           setOutputBitmap(frame.bitmap);
           setTelemetry(frame.telemetry);
-          setHistogram(frame.histogram);
+          setScopes(frame.scopes);
           previous?.close();
         })
         .catch((reason: unknown) => {
@@ -811,7 +811,7 @@ export default function App() {
                   <Gauge size={14} />
                   <strong>Render engine</strong>
                 </header>
-                <HistogramScope histogram={histogram} />
+                <ScopeViewer scopes={scopes} />
                 <dl>
                   <div>
                     <dt>Active backend</dt>

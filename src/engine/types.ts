@@ -45,10 +45,23 @@ export interface HistogramData {
   samples: number;
 }
 
+export interface DensityScopeData {
+  width: number;
+  height: number;
+  bins: number[];
+  samples: number;
+}
+
+export interface FrameScopes {
+  histogram: HistogramData;
+  waveform: DensityScopeData;
+  vectorscope: DensityScopeData;
+}
+
 export interface RenderedFrame {
   bitmap: ImageBitmap;
   telemetry: EngineTelemetry;
-  histogram: HistogramData;
+  scopes: FrameScopes;
 }
 
 export interface RenderedImage {

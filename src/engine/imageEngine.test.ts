@@ -21,8 +21,10 @@ import {
   resolvePalette,
   type Raster,
 } from './imageEngine';
+import { BLUE_NOISE_32 } from './blue-noise';
 import { diffusionKernels } from './diffusion';
 import { extractPalette } from './palette-extraction';
+import { computeScopes } from './scopes';
 import { transformRaster } from './transform';
 
 function raster(width: number, height: number, pixels: number[]): Raster {
@@ -363,7 +365,7 @@ describe('expanded dithering engine', () => {
   });
 
   const parallelPatterns: DitherAlgorithm[] = [
-    'bayer-2', 'bayer-4', 'bayer-8', 'clustered-4',
+    'bayer-2', 'bayer-4', 'bayer-8', 'blue-noise-32', 'clustered-4',
     'halftone-dot', 'halftone-line', 'crosshatch', 'cmyk-halftone',
     'noise', 'threshold',
   ];
@@ -447,5 +449,58 @@ describe('tone curves', () => {
       kind: 'curves', label: 'Curves',
       curveMaster: [0, 64, 128, 192, 255],
     })).toBe(true);
+  });
+});
+
+describe('professional scopes', () => {
+  it('places neutral black and white pixels in the expected waveform and vector bins', () => {
+    const source = raster(2, 1, [
+      0, 0, 0, 255,
+      255, 255, 255, 255,
+    ]);
+    const scopes = computeScopes(source);
+    expect(scopes.histogram.samples).toBe(2);
+    expect(scopes.histogram.red[0]).toBe(1);
+    expect(scopes.histogram.red[255]).toBe(1);
+    expect(scopes.histogram.luminance[0]).toBe(1);
+    expect(scopes.histogram.luminance[255]).toBe(1);
+    expect(scopes.waveform.bins[63 * 128]).toBe(1);
+    expect(scopes.waveform.bins[64]).toBe(1);
+    expect(scopes.vectorscope.bins[48 * 96 + 48]).toBe(2);
+  });
+
+  it('bounds analysis cost for large preview rasters', () => {
+    const scopes = computeScopes(makeDemoRaster(960, 720));
+    expect(scopes.histogram.samples).toBeLessThanOrEqual(250_000);
+    expect(scopes.waveform.bins).toHaveLength(128 * 64);
+    expect(scopes.vectorscope.bins).toHaveLength(96 * 96);
+    expect(scopes.waveform.samples).toBe(scopes.histogram.samples);
+    expect(scopes.vectorscope.samples).toBe(scopes.histogram.samples);
+  });
+});
+
+describe('blue-noise threshold screen', () => {
+  it('contains every threshold rank exactly once', () => {
+    expect(BLUE_NOISE_32).toHaveLength(1024);
+    expect(new Set(BLUE_NOISE_32).size).toBe(1024);
+    expect(Math.min(...BLUE_NOISE_32)).toBe(0);
+    expect(Math.max(...BLUE_NOISE_32)).toBe(1023);
+  });
+
+  it('renders a balanced deterministic threshold field for mid-gray', () => {
+    const pixels: number[] = [];
+    for (let index = 0; index < 1024; index += 1) {
+      pixels.push(128, 128, 128, 255);
+    }
+    const source = raster(32, 32, pixels);
+    const first = ditherRaster(source, 'blue-noise-32', 128, true);
+    const second = ditherRaster(source, 'blue-noise-32', 128, true);
+    expect(first.data).toEqual(second.data);
+    let white = 0;
+    for (let index = 0; index < first.data.length; index += 4) {
+      if (first.data[index] === 255) white += 1;
+    }
+    expect(white).toBeGreaterThan(500);
+    expect(white).toBeLessThan(525);
   });
 });

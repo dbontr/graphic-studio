@@ -606,6 +606,7 @@ export function StudioNode({ id, data, selected }: NodeProps<StudioFlowNode>) {
                 <option value="bayer-2">Bayer 2×2</option>
                 <option value="bayer-4">Bayer 4×4</option>
                 <option value="bayer-8">Bayer 8×8</option>
+                <option value="blue-noise-32">Blue noise 32×32</option>
                 <option value="clustered-4">Clustered dot 4×4</option>
                 <option value="halftone-dot">Halftone dots</option>
                 <option value="halftone-line">Halftone lines</option>
