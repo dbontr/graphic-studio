@@ -630,3 +630,354 @@ button {
     display: none;
   }
 }
+
+/* v2 engine + professional editor refinements */
+.visually-hidden {
+  position: fixed;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.project-switcher {
+  min-width: 150px;
+  flex-direction: column;
+  justify-content: center;
+  gap: 1px;
+  line-height: 1.1;
+}
+
+.project-switcher .project-kicker {
+  color: #66605d;
+  font-size: 8px;
+  font-weight: 650;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.project-switcher strong {
+  color: #d8d3d0;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.engine-chip {
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 9px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.035);
+  color: #77716e;
+  font-size: 9px;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+}
+
+.engine-chip.is-gpu {
+  border-color: rgba(214, 255, 101, 0.18);
+  background: rgba(214, 255, 101, 0.055);
+  color: #c9ed69;
+}
+
+.export-button:disabled {
+  opacity: 0.55;
+  cursor: wait;
+}
+
+.studio-node--adjust {
+  width: 280px;
+}
+
+.studio-node--palette .node-icon {
+  color: #ffcb72;
+  background: rgba(255, 190, 87, 0.11);
+}
+
+.studio-node--convolution .node-icon {
+  color: #74e6d2;
+  background: rgba(80, 218, 193, 0.11);
+}
+
+.studio-node--palette .studio-handle {
+  background: #ffc766 !important;
+}
+
+.studio-node--convolution .studio-handle {
+  background: #66dcc5 !important;
+}
+
+.node-palette {
+  width: 250px;
+}
+
+.node-palette button {
+  min-height: 48px;
+  height: auto;
+  padding: 6px 8px;
+}
+
+.node-palette button > div {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.node-palette button strong {
+  color: #c9c3bf;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.node-palette button small {
+  overflow: hidden;
+  color: #696360;
+  font-size: 8px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.node-palette button:hover strong {
+  color: #f3eeeb;
+}
+
+.preview-frame.is-rendering img {
+  opacity: 0.68;
+  filter: saturate(0.8);
+}
+
+.preview-rendering {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  padding: 5px 7px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 7px;
+  background: rgba(15, 13, 13, 0.78);
+  color: #d7ff6d;
+  font-size: 8px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  backdrop-filter: blur(8px);
+}
+
+.performance-panel {
+  width: 238px;
+  margin: 17px !important;
+  overflow: hidden;
+  border: 1px solid var(--stroke) !important;
+  border-radius: 13px;
+  background: rgba(25, 22, 22, 0.94);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(18px);
+}
+
+.performance-panel header {
+  height: 42px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  color: #d6ff65;
+}
+
+.performance-panel header strong {
+  color: #d8d3cf;
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.performance-panel dl {
+  margin: 0;
+  padding: 6px 11px 9px;
+}
+
+.performance-panel dl > div {
+  min-height: 29px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.035);
+}
+
+.performance-panel dl > div:last-child {
+  border-bottom: 0;
+}
+
+.performance-panel dt,
+.performance-panel dd {
+  margin: 0;
+  font-size: 8.5px;
+}
+
+.performance-panel dt {
+  color: #6f6966;
+}
+
+.performance-panel dd {
+  color: #bab4b0;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.drop-overlay {
+  position: absolute;
+  inset: 14px;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1px dashed rgba(214, 255, 101, 0.48);
+  border-radius: 20px;
+  background: rgba(13, 12, 12, 0.82);
+  box-shadow: inset 0 0 100px rgba(214, 255, 101, 0.035);
+  pointer-events: none;
+  backdrop-filter: blur(16px);
+}
+
+.drop-mark {
+  width: 48px;
+  height: 48px;
+  display: grid;
+  place-items: center;
+  margin-bottom: 3px;
+  border-radius: 15px;
+  background: rgba(214, 255, 101, 0.09);
+  color: #d6ff65;
+}
+
+.drop-overlay strong {
+  color: #ece8e4;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.drop-overlay > span:not(.drop-mark) {
+  color: #77716e;
+  font-size: 9px;
+}
+
+.error-panel {
+  max-width: 420px;
+  min-height: 44px;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 9px;
+  margin: 0 0 18px 18px !important;
+  padding: 8px 9px 8px 11px;
+  border: 1px solid rgba(255, 112, 112, 0.2) !important;
+  border-radius: 11px;
+  background: rgba(42, 22, 22, 0.94);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(14px);
+}
+
+.error-panel span {
+  color: #ff9696;
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.error-panel strong {
+  overflow: hidden;
+  color: #c8b7b7;
+  font-size: 9px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.error-panel button {
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.05);
+  color: #9c8d8d;
+  cursor: pointer;
+}
+
+.status-live.is-busy {
+  animation: engine-pulse 0.8s ease-in-out infinite alternate;
+}
+
+@keyframes engine-pulse {
+  from {
+    opacity: 0.35;
+    transform: scale(0.8);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1.15);
+  }
+}
+
+@media (max-width: 1320px) {
+  .engine-chip {
+    display: none;
+  }
+
+  .export-button {
+    padding-inline: 10px;
+  }
+}
+
+@media (max-width: 980px) {
+  .tab-group button:not(.active) {
+    display: none;
+  }
+
+  .topbar-actions .icon-button:nth-of-type(3),
+  .topbar-actions .icon-button:nth-of-type(4) {
+    display: none;
+  }
+}
+
+.node-heading-copy {
+  min-width: 0;
+  flex: 1;
+}
+
+.node-bypass {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  flex: none;
+  place-items: center;
+  margin-left: auto;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #625c59;
+  cursor: pointer;
+}
+
+.node-bypass:hover {
+  background: rgba(255, 255, 255, 0.055);
+  color: #d7d1cd;
+}
+
+.studio-node.is-bypassed {
+  border-color: rgba(255, 255, 255, 0.065);
+}
+
+.studio-node.is-bypassed .node-body {
+  opacity: 0.42;
+  filter: saturate(0.25);
+}
+
+.studio-node.is-bypassed .node-icon,
+.studio-node.is-bypassed .node-heading-copy {
+  opacity: 0.52;
+}

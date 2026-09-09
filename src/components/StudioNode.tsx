@@ -1,11 +1,15 @@
 import {
+  CircleDot,
   Download,
+  Eye,
+  EyeOff,
+  Grid3X3,
+  Image as ImageIcon,
   ImagePlus,
+  Palette as PaletteIcon,
+  ScanLine,
   SlidersHorizontal,
   Sparkles,
-  Grid3X3,
-  CircleDot,
-  Image as ImageIcon,
 } from 'lucide-react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
 import type { StudioFlowNode } from '../model';
@@ -16,6 +20,8 @@ const kindIcon = {
   adjust: SlidersHorizontal,
   pixelate: Grid3X3,
   posterize: CircleDot,
+  palette: PaletteIcon,
+  convolution: ScanLine,
   dither: Sparkles,
   output: ImageIcon,
 };
@@ -27,6 +33,7 @@ function RangeControl({
   max,
   step = 1,
   unit = '',
+  onBegin,
   onChange,
 }: {
   label: string;
@@ -35,13 +42,14 @@ function RangeControl({
   max: number;
   step?: number;
   unit?: string;
+  onBegin: () => void;
   onChange: (value: number) => void;
 }) {
   return (
     <label className="node-control nodrag">
       <span>
         {label}
-        <strong>{value}{unit}</strong>
+        <strong>{Number.isInteger(value) ? value : value.toFixed(2)}{unit}</strong>
       </span>
       <input
         type="range"
@@ -49,16 +57,20 @@ function RangeControl({
         max={max}
         step={step}
         value={value}
+        onPointerDown={onBegin}
         onChange={(event) => onChange(Number(event.target.value))}
       />
     </label>
   );
 }
-
 export function StudioNode({ id, data, selected }: NodeProps<StudioFlowNode>) {
   const studio = useStudio();
   const Icon = kindIcon[data.kind];
   const update = (patch: Partial<typeof data>) => studio.updateNodeData(id, patch);
+  const commit = (patch: Partial<typeof data>) => {
+    studio.checkpoint();
+    update(patch);
+  };
 
   return (
     <section
@@ -66,6 +78,7 @@ export function StudioNode({ id, data, selected }: NodeProps<StudioFlowNode>) {
         'studio-node',
         `studio-node--${data.kind}`,
         selected ? 'is-selected' : '',
+        data.enabled === false ? 'is-bypassed' : '',
       ].join(' ')}
     >
       {data.kind !== 'source' && (
@@ -74,10 +87,21 @@ export function StudioNode({ id, data, selected }: NodeProps<StudioFlowNode>) {
 
       <header className="node-header">
         <span className="node-icon"><Icon size={14} /></span>
-        <div>
+        <div className="node-heading-copy">
           <p>{data.label}</p>
           <span>{data.kind}</span>
         </div>
+        {data.kind !== 'source' && data.kind !== 'output' && (
+          <button
+            className="node-bypass nodrag"
+            type="button"
+            title={data.enabled === false ? 'Enable node' : 'Bypass node'}
+            aria-label={data.enabled === false ? 'Enable node' : 'Bypass node'}
+            onClick={() => commit({ enabled: data.enabled === false })}
+          >
+            {data.enabled === false ? <EyeOff size={13} /> : <Eye size={13} />}
+          </button>
+        )}
       </header>
 
       {data.kind === 'source' && (
@@ -85,10 +109,10 @@ export function StudioNode({ id, data, selected }: NodeProps<StudioFlowNode>) {
           <label className="upload-drop nodrag">
             <ImagePlus size={18} />
             <span>Choose image</span>
-            <small>{data.fileName || 'Demo gradient active'}</small>
+            <small>{data.fileName || 'Demo image active'}</small>
             <input
               type="file"
-              accept="image/png,image/jpeg,image/webp,image/gif"
+              accept="image/png,image/jpeg,image/webp,image/gif,image/avif"
               onChange={(event) => {
                 const file = event.target.files?.[0];
                 if (file) studio.uploadSource(file);
@@ -98,14 +122,24 @@ export function StudioNode({ id, data, selected }: NodeProps<StudioFlowNode>) {
           </label>
         </div>
       )}
-
       {data.kind === 'adjust' && (
         <div className="node-body">
+          <RangeControl
+            label="Exposure"
+            value={Number(data.exposure ?? 0)}
+            min={-3}
+            max={3}
+            step={0.1}
+            unit=" EV"
+            onBegin={studio.checkpoint}
+            onChange={(exposure) => update({ exposure })}
+          />
           <RangeControl
             label="Brightness"
             value={Number(data.brightness ?? 0)}
             min={-100}
             max={100}
+            onBegin={studio.checkpoint}
             onChange={(brightness) => update({ brightness })}
           />
           <RangeControl
@@ -113,15 +147,42 @@ export function StudioNode({ id, data, selected }: NodeProps<StudioFlowNode>) {
             value={Number(data.contrast ?? 0)}
             min={-100}
             max={100}
+            onBegin={studio.checkpoint}
             onChange={(contrast) => update({ contrast })}
           />
           <RangeControl
             label="Saturation"
             value={Number(data.saturation ?? 100)}
             min={0}
-            max={200}
+            max={250}
             unit="%"
+            onBegin={studio.checkpoint}
             onChange={(saturation) => update({ saturation })}
+          />
+          <RangeControl
+            label="Gamma"
+            value={Number(data.gamma ?? 1)}
+            min={0.2}
+            max={3}
+            step={0.05}
+            onBegin={studio.checkpoint}
+            onChange={(gamma) => update({ gamma })}
+          />
+          <RangeControl
+            label="Temperature"
+            value={Number(data.temperature ?? 0)}
+            min={-100}
+            max={100}
+            onBegin={studio.checkpoint}
+            onChange={(temperature) => update({ temperature })}
+          />
+          <RangeControl
+            label="Tint"
+            value={Number(data.tint ?? 0)}
+            min={-100}
+            max={100}
+            onBegin={studio.checkpoint}
+            onChange={(tint) => update({ tint })}
           />
         </div>
       )}
@@ -132,8 +193,9 @@ export function StudioNode({ id, data, selected }: NodeProps<StudioFlowNode>) {
             label="Block size"
             value={Number(data.pixelSize ?? 8)}
             min={1}
-            max={48}
+            max={128}
             unit="px"
+            onBegin={studio.checkpoint}
             onChange={(pixelSize) => update({ pixelSize })}
           />
         </div>
@@ -145,27 +207,77 @@ export function StudioNode({ id, data, selected }: NodeProps<StudioFlowNode>) {
             label="Color levels"
             value={Number(data.levels ?? 5)}
             min={2}
-            max={16}
+            max={32}
+            onBegin={studio.checkpoint}
             onChange={(levels) => update({ levels })}
           />
         </div>
       )}
+      {data.kind === 'palette' && (
+        <div className="node-body">
+          <label className="node-select nodrag">
+            <span>Palette</span>
+            <select
+              value={data.palette ?? 'gameboy'}
+              onChange={(event) => commit({ palette: event.target.value as typeof data.palette })}
+            >
+              <option value="gameboy">Game Boy</option>
+              <option value="pico8">PICO-8</option>
+              <option value="cga">CGA</option>
+              <option value="mono">Monochrome</option>
+              <option value="grayscale-4">Grayscale · 4</option>
+              <option value="grayscale-8">Grayscale · 8</option>
+            </select>
+          </label>
+        </div>
+      )}
 
+      {data.kind === 'convolution' && (
+        <div className="node-body">
+          <label className="node-select nodrag">
+            <span>Kernel</span>
+            <select
+              value={data.convolution ?? 'sharpen'}
+              onChange={(event) => commit({ convolution: event.target.value as typeof data.convolution })}
+            >
+              <option value="blur">Blur 3×3</option>
+              <option value="sharpen">Sharpen</option>
+              <option value="edge">Edge detect</option>
+              <option value="emboss">Emboss</option>
+            </select>
+          </label>
+          <RangeControl
+            label="Strength"
+            value={Number(data.strength ?? 100)}
+            min={0}
+            max={200}
+            unit="%"
+            onBegin={studio.checkpoint}
+            onChange={(strength) => update({ strength })}
+          />
+        </div>
+      )}
       {data.kind === 'dither' && (
         <div className="node-body">
           <label className="node-select nodrag">
             <span>Algorithm</span>
             <select
               value={data.algorithm ?? 'floyd-steinberg'}
-              onChange={(event) =>
-                update({ algorithm: event.target.value as typeof data.algorithm })
-              }
+              onChange={(event) => commit({ algorithm: event.target.value as typeof data.algorithm })}
             >
-              <option value="floyd-steinberg">Floyd–Steinberg</option>
-              <option value="atkinson">Atkinson</option>
-              <option value="bayer-4">Bayer 4×4</option>
-              <option value="bayer-8">Bayer 8×8</option>
-              <option value="threshold">Threshold</option>
+              <optgroup label="Error diffusion · CPU worker">
+                <option value="floyd-steinberg">Floyd–Steinberg</option>
+                <option value="atkinson">Atkinson</option>
+                <option value="burkes">Burkes</option>
+                <option value="sierra-lite">Sierra Lite</option>
+              </optgroup>
+              <optgroup label="Parallel · WebGPU">
+                <option value="bayer-2">Bayer 2×2</option>
+                <option value="bayer-4">Bayer 4×4</option>
+                <option value="bayer-8">Bayer 8×8</option>
+                <option value="noise">Noise</option>
+                <option value="threshold">Threshold</option>
+              </optgroup>
             </select>
           </label>
           <RangeControl
@@ -173,19 +285,30 @@ export function StudioNode({ id, data, selected }: NodeProps<StudioFlowNode>) {
             value={Number(data.threshold ?? 128)}
             min={1}
             max={254}
+            onBegin={studio.checkpoint}
             onChange={(threshold) => update({ threshold })}
           />
+          {data.algorithm === 'noise' && (
+            <RangeControl
+              label="Seed"
+              value={Number(data.seed ?? 1)}
+              min={0}
+              max={999}
+              onBegin={studio.checkpoint}
+              onChange={(seed) => update({ seed })}
+            />
+          )}
           <div className="segmented nodrag">
             <button
               className={data.monochrome !== false ? 'active' : ''}
-              onClick={() => update({ monochrome: true })}
+              onClick={() => commit({ monochrome: true })}
               type="button"
             >
               Mono
             </button>
             <button
               className={data.monochrome === false ? 'active' : ''}
-              onClick={() => update({ monochrome: false })}
+              onClick={() => commit({ monochrome: false })}
               type="button"
             >
               RGB
@@ -193,15 +316,15 @@ export function StudioNode({ id, data, selected }: NodeProps<StudioFlowNode>) {
           </div>
         </div>
       )}
-
       {data.kind === 'output' && (
         <div className="node-body preview-body">
-          <div className="preview-frame">
+          <div className={studio.rendering ? 'preview-frame is-rendering' : 'preview-frame'}>
             {studio.outputUrl ? (
               <img src={studio.outputUrl} alt="Processed output" draggable={false} />
             ) : (
-              <div className="preview-empty">Connect an image pipeline</div>
+              <div className="preview-empty">Preparing render engine…</div>
             )}
+            {studio.rendering && <span className="preview-rendering">Rendering</span>}
           </div>
           <footer className="preview-footer">
             <div>
@@ -211,8 +334,8 @@ export function StudioNode({ id, data, selected }: NodeProps<StudioFlowNode>) {
             <button
               className="icon-button nodrag"
               type="button"
-              aria-label="Export PNG"
-              title="Export PNG"
+              aria-label="Export full-resolution PNG"
+              title="Export full-resolution PNG"
               onClick={studio.exportOutput}
             >
               <Download size={15} />

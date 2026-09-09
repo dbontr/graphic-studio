@@ -27,10 +27,8 @@ jobs:
           cache: npm
       - name: Install
         run: npm ci
-      - name: Test
-        run: npm test
-      - name: Build
-        run: npm run build
+      - name: Quality gate
+        run: npm run check
       - name: Configure Pages
         uses: actions/configure-pages@v5
       - name: Upload Pages artifact
