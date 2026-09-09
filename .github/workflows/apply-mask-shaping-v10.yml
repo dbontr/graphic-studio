@@ -31,6 +31,8 @@ jobs:
         run: node scripts/apply-mask-lut-v10.mjs
       - name: Apply exact integer mask backend
         run: node scripts/apply-mask-integer-v10.mjs
+      - name: Isolate mask compositor parity smoke
+        run: node scripts/apply-smoke-isolation-v10.mjs
       - name: Version package
         run: npm version 0.10.0 --no-git-tag-version
       - name: Quality gate
@@ -62,6 +64,7 @@ jobs:
           rm scripts/apply-mask-shaping-v10.mjs
           rm scripts/apply-mask-lut-v10.mjs
           rm scripts/apply-mask-integer-v10.mjs
+          rm scripts/apply-smoke-isolation-v10.mjs
           rm scripts/v10-mask-final.ts.txt
           rm scripts/v10-mask-webgpu-final.ts.txt
           rm .github/workflows/apply-mask-shaping-v10.yml
