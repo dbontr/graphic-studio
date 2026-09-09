@@ -16,16 +16,19 @@ import type {
   SourceMeta,
 } from './types';
 import { WebGpuEngine } from './webgpu';
+import { extractPalette } from './palette-extraction';
 
 type Request =
   | { id: number; type: 'capabilities' }
   | { id: number; type: 'load-file'; file: File }
+  | { id: number; type: 'extract-palette'; count: number }
   | { id: number; type: 'render'; plan: RenderPlan }
   | { id: number; type: 'export'; plan: RenderPlan };
 
 type Response =
   | { id: number; ok: true; type: 'capabilities'; webgpu: boolean }
   | { id: number; ok: true; type: 'source'; meta: SourceMeta }
+  | { id: number; ok: true; type: 'palette'; colors: string[] }
   | { id: number; ok: true; type: 'render' | 'export'; image: RenderedImage }
   | { id: number; ok: false; error: string };
 
@@ -261,6 +264,15 @@ async function handle(request: Request): Promise<Response> {
         previewHeight: loaded.raster.height,
         fileName: request.file.name,
       },
+    };
+  }
+
+  if (request.type === 'extract-palette') {
+    return {
+      id: request.id,
+      ok: true,
+      type: 'palette',
+      colors: extractPalette(previewSource, request.count),
     };
   }
 

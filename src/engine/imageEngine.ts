@@ -67,6 +67,7 @@ export function stableStageSignature(stage: PipelineStage): string {
     d.pixelSize,
     d.levels,
     d.palette,
+    d.customPalette,
     d.convolution,
     d.strength,
     d.algorithm,
@@ -195,7 +196,7 @@ function pixelateRaster(raster: Raster, size = 8): Raster {
   }
   return output;
 }
-export const palettes: Record<PalettePreset, readonly [number, number, number][]> = {
+export const palettes: Record<Exclude<PalettePreset, 'custom'>, readonly [number, number, number][]> = {
   mono: [
     [0, 0, 0],
     [255, 255, 255],
@@ -226,9 +227,37 @@ export const palettes: Record<PalettePreset, readonly [number, number, number][]
     return [value, value, value] as [number, number, number];
   }),
 };
-function paletteRaster(raster: Raster, preset: PalettePreset = 'gameboy'): Raster {
+export function parseHexColor(value: string): [number, number, number] | null {
+  const normalized = value.trim().toLowerCase();
+  const short = /^#([0-9a-f]{3})$/.exec(normalized);
+  if (short) {
+    return short[1].split('').map((part) => parseInt(part + part, 16)) as [number, number, number];
+  }
+  const full = /^#([0-9a-f]{6})$/.exec(normalized);
+  if (!full) return null;
+  return [
+    parseInt(full[1].slice(0, 2), 16),
+    parseInt(full[1].slice(2, 4), 16),
+    parseInt(full[1].slice(4, 6), 16),
+  ];
+}
+
+export function resolvePalette(node: StudioNodeData): readonly [number, number, number][] {
+  if (node.palette === 'custom') {
+    const colors = (node.customPalette ?? [])
+      .map(parseHexColor)
+      .filter((color): color is [number, number, number] => color !== null)
+      .slice(0, 32);
+    const unique = Array.from(new Map(colors.map((color) => [color.join(','), color])).values());
+    if (unique.length >= 2) return unique;
+  }
+  const preset = node.palette && node.palette !== 'custom' ? node.palette : 'gameboy';
+  return palettes[preset];
+}
+
+function paletteRaster(raster: Raster, node: StudioNodeData): Raster {
   const output = copyRaster(raster);
-  const palette = palettes[preset] ?? palettes.gameboy;
+  const palette = resolvePalette(node);
   const source = raster.data;
   const target = output.data;
   for (let i = 0; i < source.length; i += 4) {
@@ -513,7 +542,7 @@ export function applyEffectCpu(raster: Raster, node: StudioNodeData): Raster {
     case 'posterize':
       return posterizeRaster(raster, Number(node.levels ?? 5));
     case 'palette':
-      return paletteRaster(raster, node.palette ?? 'gameboy');
+      return paletteRaster(raster, node);
     case 'convolution':
       return convolutionRaster(raster, node);
     case 'dither':
