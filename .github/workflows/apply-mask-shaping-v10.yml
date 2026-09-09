@@ -29,6 +29,8 @@ jobs:
         run: node scripts/apply-mask-shaping-v10.mjs
       - name: Apply deterministic mask LUT patch
         run: node scripts/apply-mask-lut-v10.mjs
+      - name: Apply exact integer mask backend
+        run: node scripts/apply-mask-integer-v10.mjs
       - name: Version package
         run: npm version 0.10.0 --no-git-tag-version
       - name: Quality gate
@@ -59,9 +61,12 @@ jobs:
         run: |
           rm scripts/apply-mask-shaping-v10.mjs
           rm scripts/apply-mask-lut-v10.mjs
+          rm scripts/apply-mask-integer-v10.mjs
+          rm scripts/v10-mask-final.ts.txt
+          rm scripts/v10-mask-webgpu-final.ts.txt
           rm .github/workflows/apply-mask-shaping-v10.yml
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add -A
-          git commit -m 'feat: add professional mask levels and gamma shaping'
+          git commit -m 'feat: add professional mask levels and exact GPU parity'
           git push origin HEAD:feat/mask-shaping-v10
