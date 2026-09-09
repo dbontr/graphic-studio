@@ -1,0 +1,64 @@
+name: Apply Graphic Studio v0.10 mask shaping
+
+on:
+  push:
+    branches:
+      - feat/mask-shaping-v10
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout release branch
+        uses: actions/checkout@v7
+        with:
+          ref: feat/mask-shaping-v10
+          fetch-depth: 0
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install
+        run: npm ci
+      - name: Apply v0.10 patch
+        run: node scripts/apply-mask-shaping-v10.mjs
+      - name: Version package
+        run: npm version 0.10.0 --no-git-tag-version
+      - name: Quality gate
+        run: npm run check
+      - name: Install browser smoke dependency
+        run: npm install --no-save --package-lock=false --no-audit playwright@1.55.0
+      - name: Mask shaping browser smoke
+        shell: bash
+        run: |
+          npm run dev -- --host 127.0.0.1 --port 5173 > /tmp/graphic-studio-vite.log 2>&1 &
+          server_pid=$!
+          trap 'kill $server_pid || true' EXIT
+          ready=0
+          for attempt in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:5173/graphic-studio/ > /dev/null; then
+              ready=1
+              break
+            fi
+            sleep 1
+          done
+          if [ "$ready" -ne 1 ]; then
+            cat /tmp/graphic-studio-vite.log
+            exit 1
+          fi
+          node scripts/smoke-mask-ui.mjs
+      - name: Commit verified release branch
+        shell: bash
+        run: |
+          rm scripts/apply-mask-shaping-v10.mjs
+          rm .github/workflows/apply-mask-shaping-v10.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'feat: add professional mask levels and gamma shaping'
+          git push origin HEAD:feat/mask-shaping-v10
