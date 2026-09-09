@@ -128,8 +128,29 @@ try {
     inputLabels: (await maskNode.locator('.blend-input-key').innerText()).replace(/\s+/g, ' ').trim(),
   };
 
+  const outputNode = page.locator('.studio-node--output').first();
+  const comparisonButtons = outputNode.locator('.preview-mode-switch button');
+  const splitButton = outputNode.getByRole('button', { name: 'Split' });
+  await splitButton.click();
+  const comparisonPreview = outputNode.locator('.comparison-preview');
+  await comparisonPreview.waitFor();
+  const scrubber = comparisonPreview.locator('input[type="range"]');
+  await scrubber.evaluate((input) => {
+    input.value = '63';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  const comparison = {
+    modes: await comparisonButtons.count(),
+    canvases: await comparisonPreview.locator('canvas').count(),
+    scrubbers: await scrubber.count(),
+    split: await scrubber.inputValue(),
+    sourceReady: await splitButton.isEnabled(),
+  };
+
   console.log('MASK_ENGINE', JSON.stringify(engine));
   console.log('MASK_UI', JSON.stringify(ui));
+  console.log('COMPARISON_UI', JSON.stringify(comparison));
   console.log('PROBLEMS', JSON.stringify(problems));
 
   if (engine.graphNodes !== 4) throw new Error(`Expected four graph nodes, got ${engine.graphNodes}`);
@@ -144,6 +165,10 @@ try {
   if (engine.maxDifference > 2) throw new Error(`Mask graph parity failed: ${engine.maxDifference}`);
   if (ui.nodes !== 1 || ui.handles !== 2 || ui.channels !== 5 || ui.strengthControls !== 5) {
     throw new Error(`Mask UI smoke failed: ${JSON.stringify(ui)}`);
+  }
+  if (!comparison.sourceReady || comparison.modes !== 3 || comparison.canvases !== 2
+    || comparison.scrubbers !== 1 || comparison.split !== '63') {
+    throw new Error(`Comparison UI smoke failed: ${JSON.stringify(comparison)}`);
   }
   if (problems.length) throw new Error(`Browser problems: ${JSON.stringify(problems)}`);
 } finally {

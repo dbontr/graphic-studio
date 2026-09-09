@@ -29,6 +29,7 @@ import { computeScopes } from './scopes';
 type Request =
   | { id: number; type: 'capabilities' }
   | { id: number; type: 'load-file'; file: File }
+  | { id: number; type: 'source-preview' }
   | { id: number; type: 'extract-palette'; count: number }
   | { id: number; type: 'render'; plan: RenderPlan }
   | { id: number; type: 'export'; plan: RenderPlan; options: ExportOptions };
@@ -36,6 +37,7 @@ type Request =
 type Response =
   | { id: number; ok: true; type: 'capabilities'; webgpu: boolean }
   | { id: number; ok: true; type: 'source'; meta: SourceMeta }
+  | { id: number; ok: true; type: 'source-preview'; bitmap: ImageBitmap }
   | { id: number; ok: true; type: 'palette'; colors: string[] }
   | { id: number; ok: true; type: 'render'; frame: RenderedFrame }
   | { id: number; ok: true; type: 'export'; image: RenderedImage }
@@ -535,6 +537,15 @@ async function handle(request: Request): Promise<Response> {
     };
   }
 
+  if (request.type === 'source-preview') {
+    return {
+      id: request.id,
+      ok: true,
+      type: 'source-preview',
+      bitmap: rasterToBitmap(previewSource),
+    };
+  }
+
   if (request.type === 'extract-palette') {
     return {
       id: request.id,
@@ -572,6 +583,8 @@ scope.onmessage = (event: MessageEvent<Request>) => {
       const response = await handle(request);
       if (response.ok && response.type === 'render') {
         scope.postMessage(response, [response.frame.bitmap]);
+      } else if (response.ok && response.type === 'source-preview') {
+        scope.postMessage(response, [response.bitmap]);
       } else {
         scope.postMessage(response);
       }
