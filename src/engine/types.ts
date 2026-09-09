@@ -30,6 +30,11 @@ export interface EngineTelemetry {
   gpuPasses: number;
 }
 
+export interface RenderedFrame {
+  bitmap: ImageBitmap;
+  telemetry: EngineTelemetry;
+}
+
 export interface RenderedImage {
   blob: Blob;
   telemetry: EngineTelemetry;

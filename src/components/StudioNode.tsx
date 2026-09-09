@@ -15,6 +15,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
+import { useEffect, useRef } from 'react';
 import type { StudioFlowNode } from '../model';
 import { useStudio } from '../studio-context';
 
@@ -29,6 +30,28 @@ const kindIcon = {
   dither: Sparkles,
   output: ImageIcon,
 };
+
+function BitmapPreview({ bitmap }: { bitmap: ImageBitmap }) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    canvas.width = bitmap.width;
+    canvas.height = bitmap.height;
+    const context = canvas.getContext('2d', { alpha: true });
+    if (!context) return;
+    context.clearRect(0, 0, canvas.width, canvas.height);
+    context.drawImage(bitmap, 0, 0);
+  }, [bitmap]);
+  return (
+    <canvas
+      ref={canvasRef}
+      role="img"
+      aria-label="Processed output"
+      className="preview-canvas"
+    />
+  );
+}
 
 function RangeControl({
   label,
@@ -476,8 +499,8 @@ export function StudioNode({ id, data, selected }: NodeProps<StudioFlowNode>) {
       {data.kind === 'output' && (
         <div className="node-body preview-body">
           <div className={studio.rendering ? 'preview-frame is-rendering' : 'preview-frame'}>
-            {studio.outputUrl ? (
-              <img src={studio.outputUrl} alt="Processed output" draggable={false} />
+            {studio.outputBitmap ? (
+              <BitmapPreview bitmap={studio.outputBitmap} />
             ) : (
               <div className="preview-empty">Preparing render engine…</div>
             )}

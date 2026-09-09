@@ -7,7 +7,7 @@ export interface StudioContextValue {
   updateNodeData: (id: string, patch: Partial<StudioNodeData>) => void;
   uploadSource: (file: File) => void;
   extractPalette: (count?: number) => Promise<string[]>;
-  outputUrl: string;
+  outputBitmap: ImageBitmap | null;
   outputMeta: string;
   telemetry: EngineTelemetry | null;
   rendering: boolean;
