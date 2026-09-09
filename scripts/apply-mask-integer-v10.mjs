@@ -44,8 +44,8 @@ replace('src/engine/mask.test.ts',
 `  it('shapes mask levels with black point, white point, and gamma', () => {`,
 `  it('uses an integer Rec.709 luminance byte for cross-backend determinism', () => {
     const pixel = new Uint8ClampedArray([64, 128, 192, 255]);
-    expect(maskChannelByte(pixel, 0, 'luminance')).toBe(116);
-    expect(maskChannelValue(pixel, 0, 'luminance')).toBeCloseTo(116 / 255);
+    expect(maskChannelByte(pixel, 0, 'luminance')).toBe(119);
+    expect(maskChannelValue(pixel, 0, 'luminance')).toBeCloseTo(119 / 255);
   });
 
   it('shapes mask levels with black point, white point, and gamma', () => {`);
