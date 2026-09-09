@@ -1,4 +1,10 @@
-import type { RenderPlan, RenderedFrame, RenderedImage, SourceMeta } from './types';
+import type {
+  ExportOptions,
+  RenderPlan,
+  RenderedFrame,
+  RenderedImage,
+  SourceMeta,
+} from './types';
 
 type WorkerResponse =
   | { id: number; ok: true; type: 'capabilities'; webgpu: boolean }
@@ -120,8 +126,8 @@ export class RenderEngineClient {
     this.dispatchRender(next);
   }
 
-  async export(plan: RenderPlan): Promise<RenderedImage> {
-    const response = await this.rpc({ type: 'export', plan });
+  async export(plan: RenderPlan, options: ExportOptions): Promise<RenderedImage> {
+    const response = await this.rpc({ type: 'export', plan, options });
     if (!response.ok || response.type !== 'export') {
       throw new Error('Unexpected export response.');
     }

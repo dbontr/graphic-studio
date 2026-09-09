@@ -39,11 +39,17 @@ import {
   useRef,
   useState,
 } from 'react';
+import { ExportPanel } from './components/ExportPanel';
 import { StudioNode } from './components/StudioNode';
 import { compilePipeline } from './engine/imageEngine';
 import { RenderEngineClient } from './engine/render-client';
 import { persistSource, restoreSource } from './engine/source-storage';
-import type { EngineTelemetry, SourceMeta } from './engine/types';
+import type {
+  EngineTelemetry,
+  ExportFormat,
+  ExportOptions,
+  SourceMeta,
+} from './engine/types';
 import {
   effectDefaults,
   initialEdges,
@@ -113,10 +119,24 @@ function downloadBlob(blob: Blob, fileName: string): void {
   window.setTimeout(() => URL.revokeObjectURL(url), 2000);
 }
 
+function exportExtension(format: ExportFormat): string {
+  return format === 'jpeg' ? 'jpg' : format;
+}
+
+function safeExportName(value: string): string {
+  const cleaned = value.trim().replace(/[\\/:*?"<>|]+/g, '-').replace(/\.+$/g, '');
+  return cleaned || 'graphic-studio-output';
+}
+
+function exportNameForSource(fileName: string): string {
+  const stem = fileName.replace(/\.[^.]+$/, '').trim();
+  return stem && stem !== 'Demo image' ? `${stem}-processed` : 'graphic-studio-output';
+}
+
 const palette = [
   { kind: 'adjust' as const, label: 'Color + tone', icon: SlidersHorizontal, hint: 'Exposure, gamma, temperature' },
   { kind: 'transform' as const, label: 'Transform', icon: Crop, hint: 'Crop, rotate, flip, resize' },
-  { kind: 'dither' as const, label: 'Dither', icon: Sparkles, hint: '9 algorithms' },
+  { kind: 'dither' as const, label: 'Dither', icon: Sparkles, hint: '24 algorithms + screens' },
   { kind: 'palette' as const, label: 'Palette map', icon: PaletteIcon, hint: 'Retro + grayscale palettes' },
   { kind: 'convolution' as const, label: 'Convolution', icon: ScanLine, hint: 'Blur, sharpen, edge, emboss' },
   { kind: 'pixelate' as const, label: 'Pixelate', icon: Grid3X3, hint: 'Nearest block sampling' },
@@ -155,6 +175,11 @@ export default function App() {
   const [webgpuAvailable, setWebgpuAvailable] = useState(false);
   const [rendering, setRendering] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exportFormat, setExportFormat] = useState<ExportFormat>('png');
+  const [exportQuality, setExportQuality] = useState(0.92);
+  const [exportMatte, setExportMatte] = useState('#ffffff');
+  const [exportFileName, setExportFileName] = useState('graphic-studio-output');
   const [outputBitmap, setOutputBitmap] = useState<ImageBitmap | null>(null);
   const [telemetry, setTelemetry] = useState<EngineTelemetry | null>(null);
   const [sourceMeta, setSourceMeta] = useState<SourceMeta>({
@@ -175,6 +200,11 @@ export default function App() {
   const workflowInputRef = useRef<HTMLInputElement | null>(null);
 
   const plan = useMemo(() => compilePipeline(nodes, edges), [nodes, edges]);
+  const exportOptions = useMemo<ExportOptions>(() => ({
+    format: exportFormat,
+    quality: exportQuality,
+    matte: exportMatte,
+  }), [exportFormat, exportQuality, exportMatte]);
   const planRef = useRef(plan);
   useEffect(() => {
     planRef.current = plan;
@@ -196,6 +226,7 @@ export default function App() {
           const meta = await engine.loadFile(restored);
           if (!active) return;
           setSourceMeta(meta);
+          setExportFileName(exportNameForSource(meta.fileName));
           setSourceVersion((value) => value + 1);
           setNodes((items) => items.map((node) =>
             node.data.kind === 'source'
@@ -295,6 +326,7 @@ export default function App() {
         .then((meta) => {
           void persistSource(file).catch(() => undefined);
           setSourceMeta(meta);
+          setExportFileName(exportNameForSource(meta.fileName));
           setSourceVersion((value) => value + 1);
           setNodes((items) =>
             items.map((node) =>
@@ -323,15 +355,16 @@ export default function App() {
     if (!engine || exporting) return;
     setExporting(true);
     setError('');
-    void engine.export(plan)
+    void engine.export(plan, exportOptions)
       .then((image) => {
-        downloadBlob(image.blob, 'graphic-studio-output.png');
+        const extension = exportExtension(exportOptions.format);
+        downloadBlob(image.blob, `${safeExportName(exportFileName)}.${extension}`);
       })
       .catch((reason: unknown) => {
         setError(reason instanceof Error ? reason.message : String(reason));
       })
       .finally(() => setExporting(false));
-  }, [exporting, plan]);
+  }, [exportFileName, exportOptions, exporting, plan]);
 
   const undo = useCallback(() => {
     const previous = history.at(-1);
@@ -470,6 +503,12 @@ export default function App() {
 
   useEffect(() => {
     const keydown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setExportOpen(false);
+        setPaletteOpen(false);
+        setPerformanceOpen(false);
+        return;
+      }
       const target = event.target as HTMLElement | null;
       if (target?.matches('input, select, textarea, [contenteditable="true"]')) return;
       const modifier = event.metaKey || event.ctrlKey;
@@ -634,16 +673,37 @@ export default function App() {
               <RotateCcw size={14} />
             </button>
             <button
-              className="export-button"
+              className={exportOpen ? 'export-button is-open' : 'export-button'}
               type="button"
-              onClick={exportOutput}
-              disabled={exporting}
+              onClick={() => {
+                setExportOpen((open) => !open);
+                setPaletteOpen(false);
+                setPerformanceOpen(false);
+              }}
             >
               <Download size={14} />
-              {exporting ? 'Exporting…' : 'Export full res'}
+              {exporting ? 'Exporting…' : 'Export'}
             </button>
           </div>
         </header>
+
+        {exportOpen && (
+          <ExportPanel
+            format={exportFormat}
+            quality={exportQuality}
+            matte={exportMatte}
+            fileName={exportFileName}
+            sourceWidth={sourceMeta.width}
+            sourceHeight={sourceMeta.height}
+            exporting={exporting}
+            onFormatChange={setExportFormat}
+            onQualityChange={setExportQuality}
+            onMatteChange={setExportMatte}
+            onFileNameChange={setExportFileName}
+            onClose={() => setExportOpen(false)}
+            onExport={exportOutput}
+          />
+        )}
 
         <div
           className={dragActive ? 'flow-shell is-dragging' : 'flow-shell'}

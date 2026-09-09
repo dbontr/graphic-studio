@@ -26,7 +26,8 @@ No uploaded image needs to leave the device.
 - Drag-and-drop image loading anywhere on the workspace
 - Clipboard image paste support
 - PNG, JPEG, WebP, GIF, and AVIF input
-- Live preview and full-resolution PNG export
+- Live preview plus full-resolution PNG, JPEG, and WebP export
+- Export panel with filename, quality, alpha-aware WebP, and configurable JPEG transparency matte
 - Node bypass / enable controls
 - Undo / redo with drag and slider coalescing
 - Keyboard shortcuts for undo, redo, save, and render
@@ -78,7 +79,7 @@ The engine uses an adaptive hybrid policy: a GPU round trip is avoided for tiny 
 
 A source-revision + stage-signature cache stores reusable intermediate rasters with a bounded memory budget. Moving nodes does not rerender the image because layout coordinates are not part of the semantic render plan. During rapid slider edits, the main thread debounces changes while the render client keeps at most one active render and one newest queued render.
 
-Preview decoding is capped for interactivity, while export re-decodes the original source at a much higher resolution budget. Live frames are transferred from the render worker as `ImageBitmap` objects and drawn directly to the preview canvas, so interactive rendering does not pay PNG compression or Blob-URL churn. PNG encoding only happens when the user explicitly exports. This keeps editing responsive without permanently throwing away source resolution.
+Preview decoding is capped for interactivity, while export re-decodes the original source at a much higher resolution budget. Live frames are transferred from the render worker as `ImageBitmap` objects and drawn directly to the preview canvas, so interactive rendering pays no image-encoding or Blob-URL churn. PNG, JPEG, or WebP encoding only happens on explicit export; JPEG exports flatten alpha against the selected matte while PNG and WebP preserve transparency. This keeps editing responsive without permanently throwing away source resolution.
 
 ## Stack
 
